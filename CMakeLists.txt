@@ -39,6 +39,8 @@ target_link_libraries(${PROJECT_NAME}
         glm
 )
 
+target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/externals/glm")
+
 install(TARGETS ${PROJECT_NAME}
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
