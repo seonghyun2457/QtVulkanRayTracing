@@ -13,7 +13,30 @@
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
-  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout" stretch="1,9">
+    <item>
+     <widget class="QWidget" name="vulkanWindow" native="true"/>
+    </item>
+    <item>
+     <widget class="QTabWidget" name="tabLogger">
+      <property name="currentIndex">
+       <number>1</number>
+      </property>
+      <widget class="QPlainTextEdit" name="vulkanLogger">
+       <attribute name="title">
+        <string>VulkanInfo</string>
+       </attribute>
+      </widget>
+      <widget class="QPlainTextEdit" name="debugLogger">
+       <attribute name="title">
+        <string>DebugInfo</string>
+       </attribute>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>

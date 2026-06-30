@@ -3,6 +3,8 @@
 
 #include <QMainWindow>
 
+#include "VulkanWindow.h"
+
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class MainWindow;
@@ -15,9 +17,19 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow() override;
+    virtual ~MainWindow() override;
 
 private:
-    Ui::MainWindow *ui;
+    void initialize();
+    void initializeLoggers();
+    void initializeVulkanWindow();
+
+
+private:
+    static constexpr int MAX_LOG_LINES{200};
+
+private:
+    std::unique_ptr<Ui::MainWindow> m_ui{nullptr};
+    std::unique_ptr<VulkanWindow> m_vulkanWindow{nullptr};
 };
 #endif // MAINWINDOW_H
