@@ -4,6 +4,8 @@
 #include <QVulkanInstance>
 #include <QVulkanFunctions>
 
+#include "SwapChain.h"
+
 #include <glm/glm.hpp>
 
 class VulkanWindow;
@@ -20,8 +22,8 @@ public:
     VulkanRenderer(VulkanRenderer&& iOther) = delete;
     VulkanRenderer& operator=(VulkanRenderer&& iOther) = delete;
 
-
-    bool initialize();
+    bool createVulkanInstance();
+    bool initializeResources();
 
     void cleanup();
 
@@ -31,19 +33,25 @@ private:
     void printDebugLog(const QString& iString);
 
 private:
-    void createInstance();
     void createSurface();
+    void createSwapChain();
 
 private:
     // Vulkan Window
-    VulkanWindow* m_window{nullptr};
+    VulkanWindow* m_pWindow{nullptr};
 
     // Vulkan Instance
     QVulkanInstance m_vulkanInstance;
 
     // Surface
     VkSurfaceKHR m_surface{VK_NULL_HANDLE};
+    VkSurfaceFormatKHR m_surfaceFormat{};
 
+    // - SwapChain
+    std::unique_ptr<SwapChain> m_pSwapchain;
+
+
+private:
     // SUPPORT
     // - Pointer to functions
     QVulkanFunctions* m_pFunctions{VK_NULL_HANDLE};

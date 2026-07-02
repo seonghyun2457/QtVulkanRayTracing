@@ -7,7 +7,7 @@
 #include <exception>
 
 VulkanRenderer::VulkanRenderer(VulkanWindow* iWindow) noexcept
-    : m_window(iWindow)
+    : m_pWindow(iWindow)
 {
 
 }
@@ -17,17 +17,15 @@ VulkanRenderer::~VulkanRenderer()
     cleanup();
 }
 
-bool VulkanRenderer::initialize()
+bool VulkanRenderer::initializeResources()
 {
     bool initialized = true;
     try
     {
-        createInstance();
         createSurface();
 
-
-
     } catch (const std::runtime_error& e) {
+        printDebugLog(e.what());
         initialized = false;
     }
 
@@ -41,24 +39,24 @@ void VulkanRenderer::cleanup()
 
 void VulkanRenderer::printVulkanLog(const QString& iString)
 {
-
+    emit m_pWindow->vulkanLogSent(iString);
 }
 
 void VulkanRenderer::printDebugLog(const QString& iString)
 {
-
+    emit m_pWindow->debugLogSent(iString);
 }
 
-void VulkanRenderer::createInstance()
+bool VulkanRenderer::createVulkanInstance()
 {
-    printDebugLog("Create Instance");
+    printDebugLog("Create vulkan Instance");
 
     m_vulkanInstance.setApiVersion(m_vulkanInstance.supportedApiVersion());
     m_vulkanInstance.setLayers({ "VK_LAYER_KHRONOS_validation" });
 
     if (!m_vulkanInstance.create()) {
         qCritical() << "Failed to create QVulkanInstance, error code:" << m_vulkanInstance.errorCode();
-        return;
+        return false;
     }
 
     printVulkanLog("Extensions:");
@@ -68,11 +66,13 @@ void VulkanRenderer::createInstance()
 
     printVulkanLog("Vulkan api version: " + m_vulkanInstance.apiVersion().toString());
 
-    m_window->setVulkanInstance(&m_vulkanInstance);
+    m_pWindow->setVulkanInstance(&m_vulkanInstance);
 
     m_pFunctions = m_vulkanInstance.functions();
 
     Q_ASSERT(m_pFunctions != VK_NULL_HANDLE);
+
+    return true;
 }
 
 void VulkanRenderer::createSurface()
@@ -81,5 +81,14 @@ void VulkanRenderer::createSurface()
     printDebugLog("Create Surface");
 
     // Get VkSurfaceKHR info from QWindow
-    m_surface = m_vulkanInstance.surfaceForWindow(m_window);
+    m_surface = m_vulkanInstance.surfaceForWindow(m_pWindow);
+
+    if (m_surface == nullptr) {
+        throw std::runtime_error("Failed to create surface");
+    }
+}
+
+void VulkanRenderer::createSwapChain()
+{
+
 }

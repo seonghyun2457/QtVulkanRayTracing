@@ -14,14 +14,25 @@
    <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout" stretch="1,9">
+   <layout class="QVBoxLayout" name="verticalLayout" stretch="5,5">
     <item>
-     <widget class="QWidget" name="vulkanWindow" native="true"/>
+     <layout class="QHBoxLayout" name="vulkanLayout" stretch="8,2">
+      <item>
+       <widget class="QWidget" name="vulkanWindow" native="true"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton">
+        <property name="text">
+         <string>PushButton</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </item>
     <item>
      <widget class="QTabWidget" name="tabLogger">
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QPlainTextEdit" name="vulkanLogger">
        <attribute name="title">
