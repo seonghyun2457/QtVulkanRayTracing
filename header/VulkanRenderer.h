@@ -4,6 +4,7 @@
 #include <QVulkanInstance>
 #include <QVulkanFunctions>
 
+#include "GraphicDevice.h"
 #include "SwapChain.h"
 
 #include <glm/glm.hpp>
@@ -29,12 +30,13 @@ public:
 
 private:
     // LOGGING
-    void printVulkanLog(const QString& iString);
-    void printDebugLog(const QString& iString);
+    void printVulkanLog(const QString& iString) const;
+    void printDebugLog(const QString& iString) const;
 
 private:
     void createSurface();
     void createSwapChain();
+    void destroySwapchain();
 
 private:
     // Vulkan Window
@@ -47,15 +49,11 @@ private:
     VkSurfaceKHR m_surface{VK_NULL_HANDLE};
     VkSurfaceFormatKHR m_surfaceFormat{};
 
-    // - SwapChain
-    std::unique_ptr<SwapChain> m_pSwapchain;
+    // Graphic Device
+    std::unique_ptr<GraphicDevice> m_pGraphicDevice{nullptr};
 
-
-private:
-    // SUPPORT
-    // - Pointer to functions
-    QVulkanFunctions* m_pFunctions{VK_NULL_HANDLE};
-    QVulkanDeviceFunctions* m_pDeviceFunctions{VK_NULL_HANDLE};
+    // SwapChain
+    std::unique_ptr<SwapChain> m_pSwapchain{nullptr};
 };
 
 #endif // VULKANRENDERER_H

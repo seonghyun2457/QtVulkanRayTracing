@@ -3,11 +3,14 @@
 #include "VulkanWindow.h"
 
 #include <QDebug>
+#include <QVariant>
 
 #include <exception>
 
 VulkanRenderer::VulkanRenderer(VulkanWindow* iWindow) noexcept
     : m_pWindow(iWindow)
+    , m_pGraphicDevice(std::make_unique<GraphicDevice>(iWindow))
+    , m_pSwapchain(std::make_unique<SwapChain>())
 {
 
 }
@@ -23,6 +26,8 @@ bool VulkanRenderer::initializeResources()
     try
     {
         createSurface();
+        m_pGraphicDevice->createGraphicDevice(m_vulkanInstance, m_surface);
+        createSwapChain();
 
     } catch (const std::runtime_error& e) {
         printDebugLog(e.what());
@@ -34,15 +39,19 @@ bool VulkanRenderer::initializeResources()
 
 void VulkanRenderer::cleanup()
 {
+    // Destroy SwapChain
+    destroySwapchain();
 
+    // Destroy Graphic Device
+    m_pGraphicDevice->destroy(m_vulkanInstance);
 }
 
-void VulkanRenderer::printVulkanLog(const QString& iString)
+void VulkanRenderer::printVulkanLog(const QString& iString) const
 {
     emit m_pWindow->vulkanLogSent(iString);
 }
 
-void VulkanRenderer::printDebugLog(const QString& iString)
+void VulkanRenderer::printDebugLog(const QString& iString) const
 {
     emit m_pWindow->debugLogSent(iString);
 }
@@ -68,10 +77,6 @@ bool VulkanRenderer::createVulkanInstance()
 
     m_pWindow->setVulkanInstance(&m_vulkanInstance);
 
-    m_pFunctions = m_vulkanInstance.functions();
-
-    Q_ASSERT(m_pFunctions != VK_NULL_HANDLE);
-
     return true;
 }
 
@@ -83,12 +88,17 @@ void VulkanRenderer::createSurface()
     // Get VkSurfaceKHR info from QWindow
     m_surface = m_vulkanInstance.surfaceForWindow(m_pWindow);
 
-    if (m_surface == nullptr) {
-        throw std::runtime_error("Failed to create surface");
-    }
+    if (m_surface == nullptr) throw std::runtime_error("Failed to create surface");
 }
 
+
+
 void VulkanRenderer::createSwapChain()
+{
+
+}
+
+void VulkanRenderer::destroySwapchain()
 {
 
 }
