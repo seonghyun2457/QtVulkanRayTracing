@@ -10,7 +10,7 @@ class VulkanWindow;
 class GraphicDevice
 {
 public:
-    explicit GraphicDevice(VulkanWindow* iWindow) noexcept;
+    explicit GraphicDevice(VulkanWindow* ipWindow, const VkSurfaceKHR& iSurface) noexcept;
     virtual ~GraphicDevice();
 
     GraphicDevice(const GraphicDevice& iOther) = delete;
@@ -19,13 +19,16 @@ public:
     GraphicDevice(GraphicDevice&& iOther) = delete;
     GraphicDevice& operator=(GraphicDevice&& iOther) = delete;
 
-    void createGraphicDevice(QVulkanInstance& iVulkanInstance, const VkSurfaceKHR& iSurface);
-    void destroy(QVulkanInstance& iVulkanInstance);
+    void createGraphicDevice();
+    void destroy();
+
+    inline const VkPhysicalDevice& getPhysicalDevice() const { return m_physicalDevice; }
+    inline const VkDevice& getDevice() const { return m_logicalDevice; }
 
 private:
-    void selectPhysicalDevice(QVulkanInstance& iVulkanInstance, const VkSurfaceKHR& iSurface);
-    void createLogicalDevice(QVulkanInstance& iVulkanInstance);
-    void createQueues(QVulkanInstance& iVulkanInstance);
+    void selectPhysicalDevice();
+    void createLogicalDevice();
+    void createQueues();
 
 
     const uint32_t getQueueFamilyIndex(const VkQueueFlags iQueueFlags) const;
@@ -39,6 +42,10 @@ private:
 private:
     // VulkanWindow
     VulkanWindow* m_pWindow{nullptr};
+
+    // Surface
+    VkSurfaceKHR m_surface{VK_NULL_HANDLE};
+
 
     // - Devices
     // -- Physical Deivce
@@ -65,13 +72,6 @@ private:
     VkQueue m_graphicsQueue{VK_NULL_HANDLE};
     VkQueue m_computeQueue{VK_NULL_HANDLE};
     VkQueue m_transferQueue{VK_NULL_HANDLE};
-
-
-private:
-    // SUPPORT
-    // - Pointer to functions
-    // QVulkanFunctions* m_pFunctions{VK_NULL_HANDLE};
-    // QVulkanDeviceFunctions* m_pDeviceFunctions{VK_NULL_HANDLE};
 };
 
 #endif // GRAPHICDEVICE_H

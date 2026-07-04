@@ -9,8 +9,8 @@
 
 VulkanRenderer::VulkanRenderer(VulkanWindow* iWindow) noexcept
     : m_pWindow(iWindow)
-    , m_pGraphicDevice(std::make_unique<GraphicDevice>(iWindow))
-    , m_pSwapchain(std::make_unique<SwapChain>())
+    , m_graphicDevice(nullptr)
+    , m_swapChain(nullptr)
 {
 
 }
@@ -18,6 +18,7 @@ VulkanRenderer::VulkanRenderer(VulkanWindow* iWindow) noexcept
 VulkanRenderer::~VulkanRenderer()
 {
     cleanup();
+    qDebug() << "Destroyed VulkanRenderer";
 }
 
 bool VulkanRenderer::initializeResources()
@@ -26,7 +27,7 @@ bool VulkanRenderer::initializeResources()
     try
     {
         createSurface();
-        m_pGraphicDevice->createGraphicDevice(m_vulkanInstance, m_surface);
+        createGraphicDevice();
         createSwapChain();
 
     } catch (const std::runtime_error& e) {
@@ -39,11 +40,53 @@ bool VulkanRenderer::initializeResources()
 
 void VulkanRenderer::cleanup()
 {
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+
+    // Wait until Idle status
+    if (m_graphicDevice && pVulkanInstance && pVulkanInstance->isValid() && m_graphicDevice && m_graphicDevice->getDevice()) {
+        QVulkanDeviceFunctions* pFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+        pFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+    } else {
+        qDebug() << "Vulkan instance doesn't exist";
+    }
+
     // Destroy SwapChain
-    destroySwapchain();
+    if (m_swapChain) {
+        m_swapChain = nullptr;
+    }
 
     // Destroy Graphic Device
-    m_pGraphicDevice->destroy(m_vulkanInstance);
+    if (m_graphicDevice) {
+        m_graphicDevice = nullptr;
+    };
+
+    qDebug() << "Cleaned up";
+}
+
+void VulkanRenderer::recreateImageDependentResources()
+{
+    printDebugLog("Recreate image dependent resources");
+
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
+    // Wait until idle status
+    pDeviceFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+
+    const size_t prevSwapChainImageCount = m_swapChain->getSwapchainImageCount();
+    m_swapChain->recreateSwapchain(m_surface, m_surfaceFormat);
+
+    if (prevSwapChainImageCount != m_swapChain->getSwapchainImageCount()) {
+        // Destroy resources
+        {
+
+        }
+
+        // Recreate resources
+        {
+
+        }
+    }
 }
 
 void VulkanRenderer::printVulkanLog(const QString& iString) const
@@ -56,49 +99,44 @@ void VulkanRenderer::printDebugLog(const QString& iString) const
     emit m_pWindow->debugLogSent(iString);
 }
 
-bool VulkanRenderer::createVulkanInstance()
-{
-    printDebugLog("Create vulkan Instance");
-
-    m_vulkanInstance.setApiVersion(m_vulkanInstance.supportedApiVersion());
-    m_vulkanInstance.setLayers({ "VK_LAYER_KHRONOS_validation" });
-
-    if (!m_vulkanInstance.create()) {
-        qCritical() << "Failed to create QVulkanInstance, error code:" << m_vulkanInstance.errorCode();
-        return false;
-    }
-
-    printVulkanLog("Extensions:");
-    for (const auto& extension : m_vulkanInstance.extensions()) {
-        printVulkanLog(extension);
-    }
-
-    printVulkanLog("Vulkan api version: " + m_vulkanInstance.apiVersion().toString());
-
-    m_pWindow->setVulkanInstance(&m_vulkanInstance);
-
-    return true;
-}
-
 void VulkanRenderer::createSurface()
 {
-
     printDebugLog("Create Surface");
 
     // Get VkSurfaceKHR info from QWindow
-    m_surface = m_vulkanInstance.surfaceForWindow(m_pWindow);
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
-    if (m_surface == nullptr) throw std::runtime_error("Failed to create surface");
+    if (pVulkanInstance == nullptr) throw std::runtime_error("Vulkan Instance isn't set in Window.");
+
+    m_surface = pVulkanInstance->surfaceForWindow(m_pWindow);
+    if (m_surface == nullptr) throw std::runtime_error("Failed to create surface.");
+}
+
+void VulkanRenderer::createGraphicDevice()
+{
+    Q_ASSERT(m_pWindow);
+    Q_ASSERT(m_surface);
+
+    m_graphicDevice = std::make_unique<GraphicDevice>(m_pWindow, m_surface);
+
+    if (m_graphicDevice == nullptr) throw std::runtime_error("Failed to create GraphicDevice instance");
+
+    m_graphicDevice->createGraphicDevice();
 }
 
 
 
 void VulkanRenderer::createSwapChain()
 {
+    Q_ASSERT(m_pWindow);
+    Q_ASSERT(m_surface);
 
+    m_swapChain = std::make_unique<SwapChain>(m_pWindow, m_graphicDevice->getPhysicalDevice(), m_graphicDevice->getDevice());
+
+    m_swapChain->createSwapchain(m_surface, m_surfaceFormat);
 }
 
-void VulkanRenderer::destroySwapchain()
+void VulkanRenderer::recreateImageDependentResources()
 {
 
 }

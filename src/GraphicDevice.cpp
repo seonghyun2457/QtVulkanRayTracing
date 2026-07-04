@@ -1,6 +1,7 @@
 #include "GraphicDevice.h"
 
 // Qt
+#include <QVulkanInstance>
 #include <QVulkanFunctions>
 #include <QVariant>
 #include <QString>
@@ -8,52 +9,59 @@
 //
 #include "VulkanWindow.h"
 
-GraphicDevice::GraphicDevice(VulkanWindow* iWindow) noexcept
-    : m_pWindow(iWindow)
+GraphicDevice::GraphicDevice(VulkanWindow* ipWindow, const VkSurfaceKHR& iSurface) noexcept
+    : m_pWindow(ipWindow)
+    , m_surface(iSurface)
 {
 
 }
 
 GraphicDevice::~GraphicDevice()
 {
-
+    destroy();
 }
 
-void GraphicDevice::createGraphicDevice(QVulkanInstance& iVulkanInstance, const VkSurfaceKHR& iSurface)
+void GraphicDevice::createGraphicDevice()
 {
-    Q_ASSERT(iVulkanInstance.isValid());
-
-    selectPhysicalDevice(iVulkanInstance, iSurface);
-    createLogicalDevice(iVulkanInstance);
-
+    selectPhysicalDevice();
+    createLogicalDevice();
 }
 
-void GraphicDevice::destroy(QVulkanInstance& iVulkanInstance)
+void GraphicDevice::destroy()
 {
-    QVulkanDeviceFunctions* pDeviceFunctions = iVulkanInstance.deviceFunctions(m_logicalDevice);
-    Q_ASSERT(pDeviceFunctions != nullptr);
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
-    pDeviceFunctions->vkDestroyDevice(m_logicalDevice, nullptr);
-    pDeviceFunctions = VK_NULL_HANDLE;
+    if (pVulkanInstance && pVulkanInstance->isValid() && m_logicalDevice) {
+        QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_logicalDevice);
+        Q_ASSERT(pDeviceFunctions != nullptr);
+
+        // Wait until idle status
+        pDeviceFunctions->vkDeviceWaitIdle(m_logicalDevice);
+
+        pDeviceFunctions->vkDestroyDevice(m_logicalDevice, nullptr);
+        m_logicalDevice = VK_NULL_HANDLE;
+    }
 }
 
-void GraphicDevice::selectPhysicalDevice(QVulkanInstance& iVulkanInstance, const VkSurfaceKHR& iSurface)
+void GraphicDevice::selectPhysicalDevice()
 {
-    Q_ASSERT(iVulkanInstance.isValid());
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+
+    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
 
     printDebugLog("Select physical device");
 
-    QVulkanFunctions* pFunctions = iVulkanInstance.functions();
+    QVulkanFunctions* pFunctions = pVulkanInstance->functions();
 
     uint32_t deviceCount = 0;
-    pFunctions->vkEnumeratePhysicalDevices(iVulkanInstance.vkInstance(), &deviceCount, nullptr);
+    pFunctions->vkEnumeratePhysicalDevices(pVulkanInstance->vkInstance(), &deviceCount, nullptr);
 
     // If no device available, then none support Vulkan!
     if (deviceCount == 0) throw std::runtime_error("Can't find GPUs that support Vulkan Instance!");
 
     // Get list of physical devices
     std::vector<VkPhysicalDevice> gpuDeviceList(deviceCount);
-    pFunctions->vkEnumeratePhysicalDevices(iVulkanInstance.vkInstance(), &deviceCount, gpuDeviceList.data());
+    pFunctions->vkEnumeratePhysicalDevices(pVulkanInstance->vkInstance(), &deviceCount, gpuDeviceList.data());
 
     // Pick suitable physical device
     // Always select first index device
@@ -125,9 +133,9 @@ void GraphicDevice::selectPhysicalDevice(QVulkanInstance& iVulkanInstance, const
         const uint32_t graphicsQueueIndex = getQueueFamilyIndex(VK_QUEUE_GRAPHICS_BIT);
         VkBool32 presentSupport = VK_FALSE;
 
-        auto* vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)iVulkanInstance.getInstanceProcAddr("vkGetPhysicalDeviceSurfaceSupportKHR");
+        auto* vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR)pVulkanInstance->getInstanceProcAddr("vkGetPhysicalDeviceSurfaceSupportKHR");
         Q_ASSERT(vkGetPhysicalDeviceSurfaceSupportKHR != nullptr);
-        vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, graphicsQueueIndex, iSurface, &presentSupport);
+        vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, graphicsQueueIndex, m_surface, &presentSupport);
 
         if (!presentSupport) throw std::runtime_error("Graphics queue family does not support presentation!");
 
@@ -135,13 +143,15 @@ void GraphicDevice::selectPhysicalDevice(QVulkanInstance& iVulkanInstance, const
     }
 }
 
-void GraphicDevice::createLogicalDevice(QVulkanInstance& iVulkanInstance)
+void GraphicDevice::createLogicalDevice()
 {
-    Q_ASSERT(iVulkanInstance.isValid());
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+
+    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
 
     printDebugLog("Create logical device");
 
-    QVulkanFunctions* pFunctions = iVulkanInstance.functions();
+    QVulkanFunctions* pFunctions = pVulkanInstance->functions();
     Q_ASSERT(pFunctions != nullptr);
 
     const VkQueueFlags requestedQueueTypes = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_GRAPHICS_BIT;
@@ -247,15 +257,17 @@ void GraphicDevice::createLogicalDevice(QVulkanInstance& iVulkanInstance)
     if (result != VK_SUCCESS) throw std::runtime_error("Failed to create a logical device");
 
     // Queues are created at the same time as the logical device
-    createQueues(iVulkanInstance);
+    createQueues();
 }
 
-void GraphicDevice::createQueues(QVulkanInstance& iVulkanInstance)
+void GraphicDevice::createQueues()
 {
-    Q_ASSERT(iVulkanInstance.isValid());
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+
+    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
     printDebugLog("Create Queues");
 
-    QVulkanDeviceFunctions* pDeviceFunctions = iVulkanInstance.deviceFunctions(m_logicalDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_logicalDevice);
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Validate queue family indices before getting queues

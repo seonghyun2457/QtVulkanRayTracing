@@ -1,6 +1,8 @@
 #include "VulkanWindow.h"
 
 #include <QDebug>
+#include <QExposeEvent>
+#include <QOffscreenSurface>
 #include <QtAssert>
 
 VulkanWindow::VulkanWindow()
@@ -15,11 +17,6 @@ VulkanWindow::~VulkanWindow()
     m_vulkanRenderer = nullptr;
 }
 
-bool VulkanWindow::createVulkanInstance()
-{
-    Q_ASSERT(m_vulkanRenderer != nullptr);
-    return m_vulkanRenderer->createVulkanInstance();
-}
 
 void VulkanWindow::initializeRenderer()
 {
@@ -42,11 +39,17 @@ void VulkanWindow::exposeEvent(QExposeEvent* event)
 
 bool VulkanWindow::event(QEvent* event)
 {
-    emit debugLogSent("event");
-    qDebug() << "event";
+    if (event->type() == QEvent::PlatformSurface) {
+        auto* surfaceEvent = static_cast<QPlatformSurfaceEvent*>(event);
 
-    if (m_initialized) {
+        if (surfaceEvent->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
+            if (m_vulkanRenderer) {
+                qDebug() << "Surface to be destroyed";
 
+                m_initialized = false;
+                m_vulkanRenderer->cleanup();
+            }
+        }
     }
 
     return QWindow::event(event);
@@ -58,7 +61,7 @@ void VulkanWindow::resizeEvent(QResizeEvent* event)
     qDebug() << "resized";
 
     if (m_initialized) {
-
+        m_vulkanRenderer->recreateImageDependentResources();
     }
 
     QWindow::resizeEvent(event);

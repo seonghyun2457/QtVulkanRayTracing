@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QVulkanInstance>
 
 #include "VulkanWindow.h"
 
@@ -23,6 +24,7 @@ private:
     void initialize();
     void initializeLoggers();
     void initializeVulkanWindow();
+    void createVulkanInstance();
 
 private slots:
     void printVulkanLog(const QString& iLog);
@@ -34,8 +36,12 @@ private:
 private:
     std::unique_ptr<Ui::MainWindow> m_ui{nullptr};
 
+    // Vulkan Instance
+    QVulkanInstance m_vulkanInstance;
+
     // Vulkan Window
-    std::unique_ptr<VulkanWindow> m_vulkanWindow{nullptr};
+    VulkanWindow* m_vulkanWindow{nullptr};
+
     static constexpr uint32_t VULKAN_WIDGET_WIDTH{900};
     static constexpr uint32_t VULKAN_WIDGET_HEIGHT{500};
 

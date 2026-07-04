@@ -12,7 +12,6 @@ public:
     VulkanWindow();
     virtual ~VulkanWindow() override;
 
-    bool createVulkanInstance();
     void initializeRenderer();
 
 signals:

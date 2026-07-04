@@ -23,10 +23,10 @@ public:
     VulkanRenderer(VulkanRenderer&& iOther) = delete;
     VulkanRenderer& operator=(VulkanRenderer&& iOther) = delete;
 
-    bool createVulkanInstance();
     bool initializeResources();
-
     void cleanup();
+
+    void recreateImageDependentResources();
 
 private:
     // LOGGING
@@ -35,25 +35,22 @@ private:
 
 private:
     void createSurface();
+    void createGraphicDevice();
     void createSwapChain();
-    void destroySwapchain();
 
 private:
     // Vulkan Window
     VulkanWindow* m_pWindow{nullptr};
-
-    // Vulkan Instance
-    QVulkanInstance m_vulkanInstance;
 
     // Surface
     VkSurfaceKHR m_surface{VK_NULL_HANDLE};
     VkSurfaceFormatKHR m_surfaceFormat{};
 
     // Graphic Device
-    std::unique_ptr<GraphicDevice> m_pGraphicDevice{nullptr};
+    std::unique_ptr<GraphicDevice> m_graphicDevice{nullptr};
 
     // SwapChain
-    std::unique_ptr<SwapChain> m_pSwapchain{nullptr};
+    std::unique_ptr<SwapChain> m_swapChain{nullptr};
 };
 
 #endif // VULKANRENDERER_H
