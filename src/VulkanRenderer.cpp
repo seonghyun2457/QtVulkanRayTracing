@@ -1,6 +1,7 @@
 #include "VulkanRenderer.h"
 
 #include "VulkanWindow.h"
+#include "Shader.h"
 
 #include <QDebug>
 #include <QVariant>
@@ -45,24 +46,44 @@ void VulkanRenderer::cleanup()
 {
     QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
-    // Wait until Idle status
     if (pVulkanInstance && pVulkanInstance->isValid() && m_graphicDevice && m_graphicDevice->getDevice()) {
         QVulkanDeviceFunctions* pFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
+        // Wait until Idle status
         pFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+
+
+        // Destroy Graphics pipeline and layout
+        {
+            auto* vkDestroyPipeline = (PFN_vkDestroyPipeline)(pVulkanInstance->getInstanceProcAddr("vkDestroyPipeline"));
+            Q_ASSERT(vkDestroyPipeline != nullptr);
+            if (m_graphicPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(m_graphicDevice->getDevice(), m_graphicPipeline, nullptr);
+                m_graphicPipeline = VK_NULL_HANDLE;
+            }
+
+            auto* vkDestroyPipelineLayout = (PFN_vkDestroyPipelineLayout)(pVulkanInstance->getInstanceProcAddr("vkDestroyPipelineLayout"));
+            Q_ASSERT(vkDestroyPipelineLayout != nullptr);
+            if (m_graphicPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(m_graphicDevice->getDevice(), m_graphicPipelineLayout, nullptr);
+                m_graphicPipelineLayout = VK_NULL_HANDLE;
+            }
+        }
+
+        // Destroy descriptor set layout
+        {
+            auto* vkDestroyDescriptorSetLayout = (PFN_vkDestroyDescriptorSetLayout)(pVulkanInstance->getInstanceProcAddr("vkDestroyDescriptorSetLayout"));
+            Q_ASSERT(vkDestroyDescriptorSetLayout != nullptr);
+            if (m_descriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(m_graphicDevice->getDevice(), m_descriptorSetLayout, nullptr);
+                m_descriptorSetLayout = VK_NULL_HANDLE;
+            }
+        }
+
     } else {
         qDebug() << "Vulkan instance doesn't exist";
     }
 
-
-    // Destroy descriptor set layout
-    if (pVulkanInstance && pVulkanInstance->isValid()) {
-        auto* vkDestroyDescriptorSetLayout = (PFN_vkDestroyDescriptorSetLayout)(pVulkanInstance->getInstanceProcAddr("vkDestroyDescriptorSetLayout"));
-        Q_ASSERT(vkDestroyDescriptorSetLayout != nullptr);
-        if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(m_graphicDevice->getDevice(), m_descriptorSetLayout, nullptr);
-            m_descriptorSetLayout = VK_NULL_HANDLE;
-        }
-    }
 
     // Destroy SwapChain
     if (m_swapChain) {
@@ -196,21 +217,18 @@ void VulkanRenderer::createPushConstantRange()
 void VulkanRenderer::createGraphicsPipeline()
 {
     printDebugLog("Create Graphic pipeline");
-    /*
 
-    Q_ASSERT(m_pDeviceFunctions != nullptr);
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
 
     // Graphics pipeline creation info requres the array of shader stage creation info
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
 
     // HANDLE SHADERS
-    // Read in SPIR-V code of shaders
-    std::vector<char> vertexShaderCode = readFile("C:/Users/ssh24/Documents/QtVulkanPathFinder/shaders/vert.spv");
-    std::vector<char> fragmentShaderCode = readFile("C:/Users/ssh24/Documents/QtVulkanPathFinder/shaders/frag.spv");
-
     // Build shader modules to link to Graphics pipeline
-    VkShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
-    VkShaderModule fragmentShaderModule = createShaderModule(fragmentShaderCode);
+    VkShaderModule vertexShaderModule = Shader::createShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), "../../shaders/vert.spv");
+    VkShaderModule fragmentShaderModule = Shader::createShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), "../../shaders/frag.spv");
 
     // Shader stage creation information
     // Vertex stage creation information
@@ -234,22 +252,17 @@ void VulkanRenderer::createGraphicsPipeline()
     // CREATE GRAPHICS PIPELINE
     {
         // How the data for a single vertex (including info such as position, color, texture coords, normals, etc) is as a whole
-        std::array<VkVertexInputBindingDescription, 2> vertexbindingDescptions{};
+        std::array<VkVertexInputBindingDescription, 1> vertexbindingDescptions{};
 
         {
             // Binding 0: shared unit-quad (per-vertex)
             vertexbindingDescptions[0].binding = 0;
             vertexbindingDescptions[0].stride = sizeof(Vertex);
             vertexbindingDescptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX; // How to move between data after each vertex
-
-            // Binding 1: per-node data (per-instance)
-            vertexbindingDescptions[1].binding = 1;
-            vertexbindingDescptions[1].stride = sizeof(instanceData_t);
-            vertexbindingDescptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE; // How to move between data after each instance
         }
 
         // How the data for an attribute is defined within a vertex
-        std::array<VkVertexInputAttributeDescription, 4> vertexInputAttributesDescripotions{};
+        std::array<VkVertexInputAttributeDescription, 3> vertexInputAttributesDescripotions{};
 
         {
             // Position attribute
@@ -259,26 +272,19 @@ void VulkanRenderer::createGraphicsPipeline()
             vertexInputAttributesDescripotions[0].format = VK_FORMAT_R32G32B32_SFLOAT; // Formate the data will take (also helps to define the size of data). 12 bytes.
             vertexInputAttributesDescripotions[0].offset = offsetof(Vertex, pos);      // Where this attribute is defined in the data for a single vertex
 
-            // UV attribute
-            // layout(location = 1) in vec2 uv in Vertex Shader
+            // Color
+            // layout(location = 1) in vec3 color in Vertex Shader
             vertexInputAttributesDescripotions[1].binding = 0;
             vertexInputAttributesDescripotions[1].location = 1;
-            vertexInputAttributesDescripotions[1].format = VK_FORMAT_R32G32_SFLOAT; // 8 Bytes for UV
-            vertexInputAttributesDescripotions[1].offset = offsetof(Vertex, uv);
+            vertexInputAttributesDescripotions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+            vertexInputAttributesDescripotions[1].offset = offsetof(Vertex, col);
 
             // UV attribute
-            // layout(location = 2) in vec4 in inRect
-            vertexInputAttributesDescripotions[2].binding = 1;
+            // layout(location = 2) in vec2 uv in Vertex Shader
+            vertexInputAttributesDescripotions[2].binding = 0;
             vertexInputAttributesDescripotions[2].location = 2;
-            vertexInputAttributesDescripotions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT; // 16 Bytes for Rectangle Center position
-            vertexInputAttributesDescripotions[2].offset = offsetof(instanceData_t, rect);
-
-            // UV attribute
-            // layout(location = 3) in vec4 in inColor
-            vertexInputAttributesDescripotions[3].binding = 1;
-            vertexInputAttributesDescripotions[3].location = 3;
-            vertexInputAttributesDescripotions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT; // 16 Bytes for Rectangle Color
-            vertexInputAttributesDescripotions[3].offset = offsetof(instanceData_t, color);
+            vertexInputAttributesDescripotions[2].format = VK_FORMAT_R32G32_SFLOAT; // 8 Bytes for UV
+            vertexInputAttributesDescripotions[2].offset = offsetof(Vertex, uv);
         }
 
 
@@ -296,7 +302,7 @@ void VulkanRenderer::createGraphicsPipeline()
         pipelineInputAssemblyStateCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;    // Default primitive type to assemble vertices as
         pipelineInputAssemblyStateCreateInfo.primitiveRestartEnable = VK_FALSE;                 // Allow overriding of "strip" topology to start new primitives
 
-        VkExtent2D extent = m_pSwapchain->getExtent();
+        VkExtent2D extent = m_swapChain->getExtent();
 
         // VIEWPORT AND SCISSOR
         // Create a viewport info struct
@@ -380,10 +386,12 @@ void VulkanRenderer::createGraphicsPipeline()
         pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutCreateInfo.setLayoutCount = 1;
         pipelineLayoutCreateInfo.pSetLayouts = &m_descriptorSetLayout;
-        pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-        pipelineLayoutCreateInfo.pPushConstantRanges = &m_pushConstantRange;
+        pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+        pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+        // pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+        // pipelineLayoutCreateInfo.pPushConstantRanges = &m_pushConstantRange;
 
-        VkResult result = m_pDeviceFunctions->vkCreatePipelineLayout(m_logicalDevice, &pipelineLayoutCreateInfo, nullptr, &m_pipelineLayout);
+        VkResult result = pDeviceFunctions->vkCreatePipelineLayout(m_graphicDevice->getDevice(), &pipelineLayoutCreateInfo, nullptr, &m_graphicPipelineLayout);
         if (result != VK_SUCCESS) throw std::runtime_error("Failed to create pipeline layout");
 
         // DEPTH STENCIL TESTING
@@ -420,7 +428,7 @@ void VulkanRenderer::createGraphicsPipeline()
         graphicsPipelineCreateInfo.pMultisampleState = &pipelineMultiSampleStateCreateInfo;
         graphicsPipelineCreateInfo.pColorBlendState = &pipelineColorBlendStateCreateInfo;
         graphicsPipelineCreateInfo.pDepthStencilState = &pipelineDepthStencilStateCreateInfo;
-        graphicsPipelineCreateInfo.layout = m_pipelineLayout;
+        graphicsPipelineCreateInfo.layout = m_graphicPipelineLayout;
         graphicsPipelineCreateInfo.renderPass = VK_NULL_HANDLE;                                    // No need Renderpass here as we use Dynamic rendering
         graphicsPipelineCreateInfo.subpass = 0;
         graphicsPipelineCreateInfo.pNext = &pipelineRenderingCreateInfo;                           // Use Dynamic rendering
@@ -429,12 +437,11 @@ void VulkanRenderer::createGraphicsPipeline()
         graphicsPipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;                            // Existing pipeline to derive from
         graphicsPipelineCreateInfo.basePipelineIndex = -1;                                         // or index of pipeline being created to derive from (in case creating multiple at once)
 
-        result = m_pDeviceFunctions->vkCreateGraphicsPipelines(m_logicalDevice, VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &m_pipeline);
+        result = pDeviceFunctions->vkCreateGraphicsPipelines(m_graphicDevice->getDevice(), VK_NULL_HANDLE, 1, &graphicsPipelineCreateInfo, nullptr, &m_graphicPipeline);
         if (result != VK_SUCCESS) throw std::runtime_error("Failed to create pipeline");
     }
 
-    m_pDeviceFunctions->vkDestroyShaderModule(m_logicalDevice, fragmentShaderModule, nullptr);
-    m_pDeviceFunctions->vkDestroyShaderModule(m_logicalDevice, vertexShaderModule, nullptr);
-    */
+    Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), fragmentShaderModule);
+    Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), vertexShaderModule);
 }
 

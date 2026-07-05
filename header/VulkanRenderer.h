@@ -9,6 +9,14 @@
 
 #include <glm/glm.hpp>
 
+
+typedef struct Vertex {
+    glm::vec3 pos; // Vertex position (x, y, z)
+    glm::vec3 col; // Vertex color
+    glm::vec2 uv;
+} vertex_t;
+
+
 class VulkanWindow;
 
 class VulkanRenderer
@@ -66,6 +74,10 @@ private:
 
     // Push Constants
     VkPushConstantRange m_pushConstantRange{};
+
+    // Graphics Pipeline
+    VkPipelineLayout m_graphicPipelineLayout{VK_NULL_HANDLE};
+    VkPipeline m_graphicPipeline{VK_NULL_HANDLE};
 };
 
 #endif // VULKANRENDERER_H
