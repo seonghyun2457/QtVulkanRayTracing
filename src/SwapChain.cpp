@@ -2,6 +2,8 @@
 
 #include "VulkanWindow.h"
 
+#include <QDebug>
+
 SwapChain::SwapChain(VulkanWindow* ipWindow, const VkPhysicalDevice& iPhysicalDevice, const VkDevice& iDevice)
     : m_pWindow(ipWindow)
     , m_pPhysicalDevice(iPhysicalDevice)
@@ -13,6 +15,7 @@ SwapChain::SwapChain(VulkanWindow* ipWindow, const VkPhysicalDevice& iPhysicalDe
 SwapChain::~SwapChain()
 {
     destroy();
+    qDebug() << "Destroyed SwapChain";
 }
 
 void SwapChain::createSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatKHR& oSurfaceFormat)

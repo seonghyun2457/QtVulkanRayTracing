@@ -37,6 +37,9 @@ private:
     void createSurface();
     void createGraphicDevice();
     void createSwapChain();
+    void createDescriptorSetLayout();
+    void createPushConstantRange();
+    void createGraphicsPipeline();
 
 private:
     // Vulkan Window
@@ -51,6 +54,18 @@ private:
 
     // SwapChain
     std::unique_ptr<SwapChain> m_swapChain{nullptr};
+
+    // - Descriptor Set Layout
+    VkDescriptorSetLayout m_descriptorSetLayout{VK_NULL_HANDLE};
+
+    // - Descriptor sets
+    std::vector<VkDescriptorSet> m_descriptorSets;
+
+    // - Descriptor pool
+    VkDescriptorPool m_descriptorPool{VK_NULL_HANDLE};
+
+    // Push Constants
+    VkPushConstantRange m_pushConstantRange{};
 };
 
 #endif // VULKANRENDERER_H

@@ -19,6 +19,7 @@ GraphicDevice::GraphicDevice(VulkanWindow* ipWindow, const VkSurfaceKHR& iSurfac
 GraphicDevice::~GraphicDevice()
 {
     destroy();
+    qDebug() << "Destroyed GraphicDevice";
 }
 
 void GraphicDevice::createGraphicDevice()

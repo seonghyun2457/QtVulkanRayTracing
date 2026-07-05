@@ -14,7 +14,9 @@ VulkanWindow::VulkanWindow()
 
 VulkanWindow::~VulkanWindow()
 {
+    qDebug() << "Destroying VulkanWindow";
     m_vulkanRenderer = nullptr;
+    qDebug() << "Destroyed VulkanWindow";
 }
 
 

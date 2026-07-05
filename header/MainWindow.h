@@ -17,7 +17,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(QVulkanInstance* ipVulkanInstance, QWidget *parent = nullptr);
     virtual ~MainWindow() override;
 
 private:
@@ -37,7 +37,7 @@ private:
     std::unique_ptr<Ui::MainWindow> m_ui{nullptr};
 
     // Vulkan Instance
-    QVulkanInstance m_vulkanInstance;
+    QVulkanInstance* m_pVulkanInstance;
 
     // Vulkan Window
     VulkanWindow* m_vulkanWindow{nullptr};

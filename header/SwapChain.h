@@ -36,9 +36,9 @@ public:
     void destroy();
 
     std::vector<swapchainImage_t>& getSwapchainImages();
-    const VkSwapchainKHR& getSwapchain() const { return m_swapchain; }
-    const size_t getSwapchainImageCount() const { return m_swapchainImages.size(); }
-    const VkExtent2D getExtent() const { return m_extent; }
+    inline const VkSwapchainKHR& getSwapchain() const { return m_swapchain; }
+    inline const size_t getSwapchainImageCount() const { return m_swapchainImages.size(); }
+    inline const VkExtent2D getExtent() const { return m_extent; }
 
 private:
     void destroySwapchainImageViews();

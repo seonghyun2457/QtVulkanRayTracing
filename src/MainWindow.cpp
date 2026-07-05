@@ -3,8 +3,9 @@
 
 #include <QtAssert>
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(QVulkanInstance* ipVulkanInstance, QWidget *parent)
     : QMainWindow(parent)
+    ,  m_pVulkanInstance(ipVulkanInstance)
     , m_ui(std::make_unique<Ui::MainWindow>())
     , m_vulkanWindow(new VulkanWindow())
 {
@@ -38,10 +39,19 @@ void MainWindow::initializeLoggers()
 void MainWindow::initializeVulkanWindow()
 {
     Q_ASSERT(m_vulkanWindow);
+    Q_ASSERT(m_pVulkanInstance);
 
-    createVulkanInstance();
+    // Log Vulkan info
+    {
+        printVulkanLog("Extensions:");
+        for (const auto& extension : m_pVulkanInstance->extensions()) {
+            printVulkanLog(extension);
+        }
 
-    m_vulkanWindow->setVulkanInstance(&m_vulkanInstance);
+        printVulkanLog("Vulkan api version: " + m_pVulkanInstance->apiVersion().toString());
+    }
+
+    m_vulkanWindow->setVulkanInstance(m_pVulkanInstance);
 
     // Window Container
     QWidget* pWindowContainer = QWidget::createWindowContainer(m_vulkanWindow, m_ui->vulkanWindow->parentWidget());
@@ -56,26 +66,6 @@ void MainWindow::initializeVulkanWindow()
         delete m_ui->vulkanWindow;
         m_ui->vulkanWindow = pWindowContainer;
     }
-}
-
-void MainWindow::createVulkanInstance()
-{
-    printDebugLog("Create vulkan Instance");
-
-    m_vulkanInstance.setApiVersion(m_vulkanInstance.supportedApiVersion());
-    m_vulkanInstance.setLayers({ "VK_LAYER_KHRONOS_validation" });
-
-    if (!m_vulkanInstance.create()) {
-        qCritical() << "Failed to create QVulkanInstance, error code:" << m_vulkanInstance.errorCode();
-        exit(1);
-    }
-
-    printVulkanLog("Extensions:");
-    for (const auto& extension : m_vulkanInstance.extensions()) {
-        printVulkanLog(extension);
-    }
-
-    printVulkanLog("Vulkan api version: " + m_vulkanInstance.apiVersion().toString());
 }
 
 void MainWindow::printVulkanLog(const QString& iLog)
