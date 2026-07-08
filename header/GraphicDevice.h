@@ -7,6 +7,12 @@
 
 class VulkanWindow;
 
+typedef struct {
+    uint32_t graphics;
+    uint32_t compute;
+    uint32_t transfer;
+} queueFamilyIndices_t;
+
 class GraphicDevice
 {
 public:
@@ -24,6 +30,7 @@ public:
 
     inline const VkPhysicalDevice& getPhysicalDevice() const { return m_physicalDevice; }
     inline const VkDevice& getDevice() const { return m_logicalDevice; }
+    inline const queueFamilyIndices_t& getQueueFamilyIndices() const { return m_queueFaimilyIndices; }
 
 private:
     void selectPhysicalDevice();
@@ -62,11 +69,7 @@ private:
 
     // - Queue Familiy
     std::vector<VkQueueFamilyProperties> m_queueFamilyProperties;
-    struct {
-        uint32_t graphics = uint32_t(-1);
-        uint32_t compute = uint32_t(-1);
-        uint32_t transfer = uint32_t(-1);
-    } m_queueFaimilyIndices{};
+    queueFamilyIndices_t m_queueFaimilyIndices{ uint32_t(-1), uint32_t(-1), uint32_t(-1) };
 
     // - Queues
     VkQueue m_graphicsQueue{VK_NULL_HANDLE};

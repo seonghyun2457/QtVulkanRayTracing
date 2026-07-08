@@ -7,6 +7,7 @@
 #include <QVariant>
 
 #include <exception>
+#include <set>
 
 VulkanRenderer::VulkanRenderer(VulkanWindow* iWindow) noexcept
     : m_pWindow(iWindow)
@@ -34,6 +35,11 @@ bool VulkanRenderer::initializeResources()
         createPushConstantRange();
         createGraphicsPipeline();
 
+        // Create resources after graphic pipeline
+        createQueryPools();
+        createCommandPools();
+        createCommandBuffers();
+
     } catch (const std::runtime_error& e) {
         printDebugLog(e.what());
         initialized = false;
@@ -51,6 +57,42 @@ void VulkanRenderer::cleanup()
 
         // Wait until Idle status
         pFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+
+        // Destroy Command buffers
+        {
+            if (!m_graphicsCommandBuffers.empty()) {
+                pFunctions->vkFreeCommandBuffers(m_graphicDevice->getDevice(), m_graphicsCommandPool, static_cast<uint32_t>(m_graphicsCommandBuffers.size()), m_graphicsCommandBuffers.data());
+                m_graphicsCommandBuffers.clear();
+            }
+        }
+
+        // Destroy Command pools
+        {
+            std::set<VkCommandPool> uniqueCommandPools;
+
+            if (m_graphicsCommandPool != VK_NULL_HANDLE) uniqueCommandPools.insert(m_graphicsCommandPool);
+            if (m_computeCommandPool != VK_NULL_HANDLE) uniqueCommandPools.insert(m_computeCommandPool);
+            if (m_transferCommandPool != VK_NULL_HANDLE) uniqueCommandPools.insert(m_transferCommandPool);
+
+            for (VkCommandPool commandPool : uniqueCommandPools) {
+                pFunctions->vkDestroyCommandPool(m_graphicDevice->getDevice(), commandPool, nullptr);
+            }
+
+            m_graphicsCommandPool = VK_NULL_HANDLE;
+            m_computeCommandPool = VK_NULL_HANDLE;
+            m_transferCommandPool = VK_NULL_HANDLE;
+
+        }
+
+        // Destroy Query pools
+        {
+            for (size_t i = 0; i < m_queryPools.size(); ++i) {
+                if (m_queryPools[i] != VK_NULL_HANDLE) {
+                    pFunctions->vkDestroyQueryPool(m_graphicDevice->getDevice(), m_queryPools[i], nullptr);
+                    m_queryPools[i] = VK_NULL_HANDLE;
+                }
+            }
+        }
 
 
         // Destroy Graphics pipeline and layout
@@ -443,5 +485,107 @@ void VulkanRenderer::createGraphicsPipeline()
 
     Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), fragmentShaderModule);
     Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), vertexShaderModule);
+}
+
+void VulkanRenderer::createQueryPools()
+{
+    printDebugLog("Create Query pools");
+
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    m_queryPools.resize(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    m_gpuTimesMs.resize(MAX_FRAMES_IN_FLIGHT, 0.f);
+
+    // Query pool creation info for FPS
+    VkQueryPoolCreateInfo queryPoolCreateInfo{};
+    queryPoolCreateInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    queryPoolCreateInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    queryPoolCreateInfo.queryCount = FPS_QUERY_COUNT; // Start-End
+
+    for (size_t i = 0; i < m_queryPools.size(); ++i) {
+        VkResult result = pDeviceFunctions->vkCreateQueryPool(m_graphicDevice->getDevice(), &queryPoolCreateInfo, nullptr, &m_queryPools[i]);
+        if (result != VK_SUCCESS) throw std::runtime_error("Failed to create Query pool");
+
+        auto* vkResetQueryPool = (PFN_vkResetQueryPool)pVulkanInstance->getInstanceProcAddr("vkResetQueryPool");
+        Q_ASSERT(vkResetQueryPool != nullptr);
+        vkResetQueryPool(m_graphicDevice->getDevice(), m_queryPools[i], 0, FPS_QUERY_COUNT);
+    }
+}
+
+void VulkanRenderer::createCommandPools()
+{
+    printDebugLog("Create Command Pools");
+
+    const queueFamilyIndices_t queueFamilyIndices = m_graphicDevice->getQueueFamilyIndices();
+
+    // Graphics command pool
+    m_graphicsCommandPool = createCommandPool(queueFamilyIndices.graphics);
+    printDebugLog("Created Graphics Command Pool");
+
+    // Compute command pool
+    if (queueFamilyIndices.compute != queueFamilyIndices.graphics) {
+        m_computeCommandPool = createCommandPool(queueFamilyIndices.compute);
+        printDebugLog("Created Compute Command Pool");
+    } else {
+        m_computeCommandPool = m_graphicsCommandPool;
+    }
+
+    // Transfer command pool
+    if (queueFamilyIndices.transfer != queueFamilyIndices.graphics && queueFamilyIndices.transfer != queueFamilyIndices.compute) {
+        m_transferCommandPool = createCommandPool(queueFamilyIndices.transfer);
+        printDebugLog("Created Transfer Command Pool");
+    } else if (queueFamilyIndices.transfer != queueFamilyIndices.compute) {
+        m_transferCommandPool = m_computeCommandPool;
+    } else {
+        m_transferCommandPool = m_graphicsCommandPool;
+    }
+}
+
+VkCommandPool VulkanRenderer::createCommandPool(const uint32_t iQueueFamilyIndex)
+{
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    VkCommandPoolCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    createInfo.queueFamilyIndex = iQueueFamilyIndex;
+    createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+    VkCommandPool commandPool;
+    VkResult result = pDeviceFunctions->vkCreateCommandPool(m_graphicDevice->getDevice(), &createInfo, nullptr, &commandPool);
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to create a Command Pool");
+
+    return commandPool;
+}
+
+void VulkanRenderer::createCommandBuffers()
+{
+    printDebugLog("Create Command buffers");
+
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // Resize command buffer count to have one for each frame buffer
+    m_graphicsCommandBuffers.resize(m_swapChain->getSwapchainImageCount());
+
+    // Command buffer allocation information
+    VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
+    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandBufferAllocateInfo.commandPool = m_graphicsCommandPool;
+    // VK_COMMAND_BUFFER_LEVEL_PRIMARY: Buffer you submit directly to queue. Can't be called by other buffers.
+    // VK_COMMAND_BUFFER_LEVEL_SECONDARY: Buffer can't be called directly. Can be called from other buffers via "vkCmdExecuteCommands" when recording commands in primary buffer.
+    commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandBufferAllocateInfo.commandBufferCount = static_cast<uint32_t>(m_graphicsCommandBuffers.size());
+
+    // Allocate command buffers and place handles in array of buffers
+    VkResult result = pDeviceFunctions->vkAllocateCommandBuffers(m_graphicDevice->getDevice(), &commandBufferAllocateInfo, m_graphicsCommandBuffers.data());
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to allocate Command Buffers");
 }
 
