@@ -66,10 +66,7 @@ void VulkanRenderer::cleanup()
         pDeviceFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
 
         // Destroy Descriptor pool
-        {
-            destroyDescriptorPool();
-            m_descriptorSets.clear();
-        }
+        destroyDescriptorPool();
 
 
         // Destroy uniform buffers
@@ -194,12 +191,31 @@ void VulkanRenderer::recreateImageDependentResources()
     if (prevSwapChainImageCount != m_swapChain->getSwapchainImageCount()) {
         // Destroy resources
         {
+            // Destroy RenderFinished semaphores
+            for (size_t i = 0; i < m_renderFinished.size(); ++i) {
+                if (m_renderFinished[i] != VK_NULL_HANDLE) {
+                    pDeviceFunctions->vkDestroySemaphore(m_graphicDevice->getDevice(), m_renderFinished[i], nullptr);
+                    m_renderFinished[i] = VK_NULL_HANDLE;
+                }
+            }
 
+            // Destroy Command buffers
+            pDeviceFunctions->vkResetCommandPool(m_graphicDevice->getDevice(), m_graphicsCommandPool, 0);
+
+            // Destroy Descriptor pool
+            destroyDescriptorPool();
+
+            // Destroy Uniform buffers;
+            destroyUniformBuffers();
         }
 
         // Recreate resources
         {
-
+            createUniformBuffers();
+            createDescriptorPool();
+            createDescriptorSets();
+            createCommandBuffers();
+            createRenderFinishedSemaphores();
         }
     }
 }
@@ -687,6 +703,8 @@ void VulkanRenderer::destroyDescriptorPool()
         pDeviceFunctions->vkDestroyDescriptorPool(m_graphicDevice->getDevice(), m_descriptorPool, nullptr);
         m_descriptorPool = VK_NULL_HANDLE;
     }
+
+    m_descriptorSets.clear();
 }
 
 void VulkanRenderer::createDescriptorSets()
