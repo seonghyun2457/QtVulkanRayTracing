@@ -24,6 +24,8 @@ public:
 
     void destroy();
 
+    inline const VkBuffer& getBuffer() const { return m_buffer; };
+
 private:
     void destroyBuffer();
     void destroyBufferMemory();

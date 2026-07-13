@@ -60,8 +60,10 @@ private:
     void createUniformBuffers();
     void destroyUniformBuffers();
     void createDescriptorPool();
+    void destroyDescriptorPool();
     void createDescriptorSets();
     void createSynchronization();
+    void createRenderFinishedSemaphores();
 
 private:
     // Vulkan Window

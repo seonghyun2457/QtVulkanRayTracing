@@ -65,6 +65,12 @@ void VulkanRenderer::cleanup()
         // Wait until Idle status
         pDeviceFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
 
+        // Destroy Descriptor pool
+        {
+            destroyDescriptorPool();
+            m_descriptorSets.clear();
+        }
+
 
         // Destroy uniform buffers
         destroyUniformBuffers();
@@ -130,6 +136,27 @@ void VulkanRenderer::cleanup()
             if (m_descriptorSetLayout != VK_NULL_HANDLE) {
                 vkDestroyDescriptorSetLayout(m_graphicDevice->getDevice(), m_descriptorSetLayout, nullptr);
                 m_descriptorSetLayout = VK_NULL_HANDLE;
+            }
+        }
+
+        // Desctroy synchronization resources
+        {
+            auto* vkDestroySemaphore = (PFN_vkDestroySemaphore)(pVulkanInstance->getInstanceProcAddr("vkDestroySemaphore"));
+            Q_ASSERT(vkDestroySemaphore != nullptr);
+
+            auto* vkDestroyFence = (PFN_vkDestroyFence)(pVulkanInstance->getInstanceProcAddr("vkDestroyFence"));
+            Q_ASSERT(vkDestroyFence != nullptr);
+
+            for (size_t i = 0; i < m_imagesAvailable.size(); ++i) {
+                vkDestroySemaphore(m_graphicDevice->getDevice(), m_imagesAvailable[i], nullptr);
+            }
+
+            for (size_t i = 0; i < m_renderFinished.size(); ++i) {
+                vkDestroySemaphore(m_graphicDevice->getDevice(), m_renderFinished[i], nullptr);
+            }
+
+            for (size_t i = 0; i < m_fences.size(); ++i) {
+                vkDestroyFence(m_graphicDevice->getDevice(), m_fences[i], nullptr);
             }
         }
 
@@ -625,16 +652,144 @@ void VulkanRenderer::destroyUniformBuffers()
 
 void VulkanRenderer::createDescriptorPool()
 {
+    printDebugLog("Create Descriptor pool");
 
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // CREATE UNIFORM BUFFER DESCRIPTOR POOL
+    // Type of descriptor + how many Descriptoprs, not Descriptor Sets (combined makes the pool size)
+    VkDescriptorPoolSize mvpDescriptorPoolSize{};
+    mvpDescriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;                         // Type of descriptor (uniform buffer, image sampler, etc)
+    mvpDescriptorPoolSize.descriptorCount = static_cast<uint32_t>(m_uboMvpBuffers.size());  // Number of descriptor of this type
+
+    // List of descriptor pool sizes
+    std::vector<VkDescriptorPoolSize> descriptorPoolSizes = {mvpDescriptorPoolSize};
+
+    // Descriptor pool creation information
+    VkDescriptorPoolCreateInfo mvpDescriptorPoolCreateInfo{};
+    mvpDescriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;                       // Type of the structures
+    mvpDescriptorPoolCreateInfo.maxSets = static_cast<uint32_t>(m_swapChain->getSwapchainImageCount());      // Maximum number of descriptor sets that can be allocated from pool
+    mvpDescriptorPoolCreateInfo.poolSizeCount = static_cast<uint32_t>(descriptorPoolSizes.size());           // Amount of pool sizes being passed
+    mvpDescriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes.data();                                     // Pool sizes to create pool with
+
+    // Create Descriptor pool
+    VkResult result = pDeviceFunctions->vkCreateDescriptorPool(m_graphicDevice->getDevice(), &mvpDescriptorPoolCreateInfo, nullptr, &m_descriptorPool);
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to create Descriptor pool");
+}
+
+void VulkanRenderer::destroyDescriptorPool()
+{
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    if (m_descriptorPool != VK_NULL_HANDLE) {
+        pDeviceFunctions->vkDestroyDescriptorPool(m_graphicDevice->getDevice(), m_descriptorPool, nullptr);
+        m_descriptorPool = VK_NULL_HANDLE;
+    }
 }
 
 void VulkanRenderer::createDescriptorSets()
 {
+    printDebugLog("Create Descriptor sets");
 
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // Resize descriptor sets so one for every unifrom buffer
+    m_descriptorSets.resize(m_swapChain->getSwapchainImageCount());
+
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts(m_swapChain->getSwapchainImageCount(), m_descriptorSetLayout);
+
+    // Descriptor set allocation information
+    VkDescriptorSetAllocateInfo descriptorSetAllocateinfo{};
+    descriptorSetAllocateinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateinfo.descriptorPool = m_descriptorPool;                                                  // Pool to allocate Descriptor sets from
+    descriptorSetAllocateinfo.descriptorSetCount = static_cast<uint32_t>(m_swapChain->getSwapchainImageCount());  // Number of descriptor sets to allocate
+    descriptorSetAllocateinfo.pSetLayouts = descriptorSetLayouts.data();                                          // Layouts to use for each allocated set
+
+    VkResult result = pDeviceFunctions->vkAllocateDescriptorSets(m_graphicDevice->getDevice(), &descriptorSetAllocateinfo, m_descriptorSets.data());
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to create Descriptor sets");
+
+    // Update descritor sets with buffer bindings
+    for (size_t i = 0; i < m_swapChain->getSwapchainImageCount(); ++i) {
+        // UBO modelViewProejction descriptor
+        VkDescriptorBufferInfo mvpUniformBufferInfo{};
+
+        mvpUniformBufferInfo.buffer = m_uboMvpBuffers[i]->getBuffer();     // Buffer to bind to descriptor set
+        mvpUniformBufferInfo.offset = 0;                                   // Offset in buffer to start of data
+        mvpUniformBufferInfo.range = sizeof(UboModelViewProjection);       // Size of data to bind
+
+        // Data about connection between buffer and binding in shader
+        VkWriteDescriptorSet mvpUniformBufferWriteDescriptorSet{};
+        mvpUniformBufferWriteDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        mvpUniformBufferWriteDescriptorSet.dstSet = m_descriptorSets[i];                        // Descriptor set to write to
+        mvpUniformBufferWriteDescriptorSet.dstBinding = 0;                                      // Binding in shader where data will be read
+        mvpUniformBufferWriteDescriptorSet.dstArrayElement = 0;                                 // Index in array to write to
+        mvpUniformBufferWriteDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;  // Type of descriptor
+        mvpUniformBufferWriteDescriptorSet.descriptorCount = 1;                                 // Number of descriptors t write
+        mvpUniformBufferWriteDescriptorSet.pBufferInfo = &mvpUniformBufferInfo;                 // Buffer info
+
+        // List of write descriptor sets
+        std::vector<VkWriteDescriptorSet> writeDescriptorSets = {mvpUniformBufferWriteDescriptorSet};
+
+        // Update the descriptor set with new buffer/binding info
+        pDeviceFunctions->vkUpdateDescriptorSets(m_graphicDevice->getDevice(), static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+    }
 }
 
 void VulkanRenderer::createSynchronization()
 {
+    printDebugLog("Create Synchronization");
 
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    m_imagesAvailable.resize(MAX_FRAMES_IN_FLIGHT,     VK_NULL_HANDLE);
+    m_fences.resize(MAX_FRAMES_IN_FLIGHT,              VK_NULL_HANDLE);
+
+    // Semaphore creation information
+    VkSemaphoreCreateInfo semaphoreCreateInfo{};
+    semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    // Fence creation information
+    VkFenceCreateInfo fenceCreateInfo{};
+    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for (size_t i = 0; i < m_fences.size(); ++i) {
+        if ((pDeviceFunctions->vkCreateFence(m_graphicDevice->getDevice(), &fenceCreateInfo, nullptr, &m_fences[i])) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to fences");
+        }
+    }
+
+    for (size_t i = 0; i < m_imagesAvailable.size(); ++i) {
+        if ((pDeviceFunctions->vkCreateSemaphore(m_graphicDevice->getDevice(), &semaphoreCreateInfo, nullptr, &m_imagesAvailable[i])) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create semamphores");
+        }
+    }
+
+    createRenderFinishedSemaphores();
 }
 
+void VulkanRenderer::createRenderFinishedSemaphores()
+{
+    printDebugLog("Create RenderedFinished sempaphores");
+
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // Resize
+    m_renderFinished.resize(m_swapChain->getSwapchainImageCount(), VK_NULL_HANDLE);
+
+
+    // Semaphore re-creation information
+    VkSemaphoreCreateInfo semaphoreCreateInfo{};
+    semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for (size_t i = 0; i < m_renderFinished.size(); ++i) {
+        if ((pDeviceFunctions->vkCreateSemaphore(m_graphicDevice->getDevice(), &semaphoreCreateInfo, nullptr, &m_renderFinished[i])) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create semamphores");
+        }
+    }
+}
