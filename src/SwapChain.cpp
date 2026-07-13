@@ -1,13 +1,13 @@
 #include "SwapChain.h"
 
 #include "VulkanWindow.h"
+#include "GraphicDevice.h"
 
 #include <QDebug>
 
-SwapChain::SwapChain(VulkanWindow* ipWindow, const VkPhysicalDevice& iPhysicalDevice, const VkDevice& iDevice)
+SwapChain::SwapChain(VulkanWindow* ipWindow, GraphicDevice* ipGraphicDevice)
     : m_pWindow(ipWindow)
-    , m_pPhysicalDevice(iPhysicalDevice)
-    , m_pDevice(iDevice)
+    , m_pGraphicDevice(ipGraphicDevice)
 {
 
 }
@@ -16,6 +16,9 @@ SwapChain::~SwapChain()
 {
     destroy();
     qDebug() << "Destroyed SwapChain";
+
+    m_pWindow = nullptr;
+    m_pGraphicDevice = nullptr;
 }
 
 void SwapChain::createSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatKHR& oSurfaceFormat)
@@ -79,16 +82,16 @@ void SwapChain::createSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatKHR
     // Create Swapchain
     auto* vkCreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)(pVulkanInstance->getInstanceProcAddr("vkCreateSwapchainKHR"));
     Q_ASSERT(vkCreateSwapchainKHR != nullptr);
-    VkResult result = vkCreateSwapchainKHR(m_pDevice, &swapchainCreateInfo, nullptr, &m_swapchain);
+    VkResult result = vkCreateSwapchainKHR(m_pGraphicDevice->getDevice(), &swapchainCreateInfo, nullptr, &m_swapchain);
     if (result != VK_SUCCESS) throw std::runtime_error("Failed to create a swapchain");
     m_swapchainImages.clear();
 
     uint32_t swapchainImageCount = 0;
     auto* vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)(pVulkanInstance->getInstanceProcAddr("vkGetSwapchainImagesKHR"));
     Q_ASSERT(vkGetSwapchainImagesKHR != nullptr);
-    vkGetSwapchainImagesKHR(m_pDevice, m_swapchain, &swapchainImageCount, nullptr);
+    vkGetSwapchainImagesKHR(m_pGraphicDevice->getDevice(), m_swapchain, &swapchainImageCount, nullptr);
     std::vector<VkImage> images(swapchainImageCount);
-    vkGetSwapchainImagesKHR(m_pDevice, m_swapchain, &swapchainImageCount, images.data());
+    vkGetSwapchainImagesKHR(m_pGraphicDevice->getDevice(), m_swapchain, &swapchainImageCount, images.data());
 
     m_swapchainImages.reserve(images.size());
 
@@ -116,10 +119,10 @@ void SwapChain::recreateSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatK
     }
 
     // Wait until Idle status
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_pDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = m_pGraphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != VK_NULL_HANDLE);
 
-    pDeviceFunctions->vkDeviceWaitIdle(m_pDevice);
+    pDeviceFunctions->vkDeviceWaitIdle(m_pGraphicDevice->getDevice());
 
     // Move current swapchain to old swapchain to recreate
     m_oldSwapchain = m_swapchain;
@@ -135,7 +138,7 @@ void SwapChain::recreateSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatK
     if (m_oldSwapchain != VK_NULL_HANDLE) {
         auto* vkDestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)pVulkanInstance->getInstanceProcAddr("vkDestroySwapchainKHR");
         Q_ASSERT(vkDestroySwapchainKHR != nullptr);
-        vkDestroySwapchainKHR(m_pDevice, m_oldSwapchain, nullptr);
+        vkDestroySwapchainKHR(m_pGraphicDevice->getDevice(), m_oldSwapchain, nullptr);
         m_oldSwapchain = VK_NULL_HANDLE;
     }
 }
@@ -144,12 +147,12 @@ void SwapChain::destroy()
 {
     QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
-    if (pVulkanInstance && pVulkanInstance->isValid() && m_pDevice) {
-        QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_pDevice);
+    if (pVulkanInstance && pVulkanInstance->isValid() && m_pGraphicDevice && m_pGraphicDevice->getDevice()) {
+        QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_pGraphicDevice->getDevice());
         Q_ASSERT(pDeviceFunctions != VK_NULL_HANDLE);
 
         // Wait until idle status
-        pDeviceFunctions->vkDeviceWaitIdle(m_pDevice);
+        pDeviceFunctions->vkDeviceWaitIdle(m_pGraphicDevice->getDevice());
 
         destroySwapchainImageViews();
 
@@ -157,12 +160,12 @@ void SwapChain::destroy()
         Q_ASSERT(vkDestroySwapchainKHR != VK_NULL_HANDLE);
 
         if (m_swapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(m_pDevice, m_swapchain, nullptr);
+            vkDestroySwapchainKHR(m_pGraphicDevice->getDevice(), m_swapchain, nullptr);
             m_swapchain = VK_NULL_HANDLE;
         }
 
         if (m_oldSwapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(m_pDevice, m_oldSwapchain, nullptr);
+            vkDestroySwapchainKHR(m_pGraphicDevice->getDevice(), m_oldSwapchain, nullptr);
             m_oldSwapchain = VK_NULL_HANDLE;
         }
     }
@@ -171,17 +174,13 @@ void SwapChain::destroy()
 
 void SwapChain::destroySwapchainImageViews()
 {
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
-
-
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_pDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = m_pGraphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Destroy the old swapchain
     for (size_t i = 0; i < m_swapchainImages.size(); ++i) {
         if (m_swapchainImages[i].imageView != VK_NULL_HANDLE) {
-            pDeviceFunctions->vkDestroyImageView(m_pDevice, m_swapchainImages[i].imageView, nullptr);
+            pDeviceFunctions->vkDestroyImageView(m_pGraphicDevice->getDevice(), m_swapchainImages[i].imageView, nullptr);
             m_swapchainImages[i].imageView = VK_NULL_HANDLE;
         }
     }
@@ -202,28 +201,28 @@ const swapchainDetails_t SwapChain::getSwapChainDetails(const VkSurfaceKHR& iSur
     // Get the surface capabilities for the given surface on the given physical device
     auto* vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR)(pVulkanInstance->getInstanceProcAddr("vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
     Q_ASSERT(vkGetPhysicalDeviceSurfaceCapabilitiesKHR != nullptr);
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_pPhysicalDevice, iSurface, &swapchainDetails.surfaceCapabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_pGraphicDevice->getPhysicalDevice(), iSurface, &swapchainDetails.surfaceCapabilities);
 
     // FORMATS
     uint32_t formatCount = 0;
     auto* vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR)(pVulkanInstance->getInstanceProcAddr("vkGetPhysicalDeviceSurfaceFormatsKHR"));
     Q_ASSERT(vkGetPhysicalDeviceSurfaceFormatsKHR != nullptr);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(m_pPhysicalDevice, iSurface, &formatCount, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(m_pGraphicDevice->getPhysicalDevice(), iSurface, &formatCount, nullptr);
     if (formatCount != 0) {
         swapchainDetails.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(m_pPhysicalDevice, iSurface, &formatCount, swapchainDetails.formats.data());
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_pGraphicDevice->getPhysicalDevice(), iSurface, &formatCount, swapchainDetails.formats.data());
     }
 
     // PRESENTATION MODES
     uint32_t presentationCount = 0;
     auto* vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR)(pVulkanInstance->getInstanceProcAddr("vkGetPhysicalDeviceSurfacePresentModesKHR"));
     Q_ASSERT(vkGetPhysicalDeviceSurfacePresentModesKHR != nullptr);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(m_pPhysicalDevice, iSurface, &presentationCount, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(m_pGraphicDevice->getPhysicalDevice(), iSurface, &presentationCount, nullptr);
 
     // if presentation modees returned, get list of presentation modes
     if (presentationCount != 0) {
         swapchainDetails.presentationModes.resize(presentationCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(m_pPhysicalDevice, iSurface, &presentationCount, swapchainDetails.presentationModes.data());
+        vkGetPhysicalDeviceSurfacePresentModesKHR(m_pGraphicDevice->getPhysicalDevice(), iSurface, &presentationCount, swapchainDetails.presentationModes.data());
     }
 
     return swapchainDetails;
@@ -296,9 +295,6 @@ const VkExtent2D SwapChain::chooseSwapExtent(const uint32_t iWidth, const uint32
 
 const VkImageView SwapChain::createImageView(const VkImage iImage, const VkFormat iFormat, const VkImageAspectFlags iAspectFlags)
 {
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
-
     VkImageViewCreateInfo imageViewCreateInfo{};
     imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imageViewCreateInfo.image = iImage;                                          // Image to vreate view for
@@ -319,9 +315,10 @@ const VkImageView SwapChain::createImageView(const VkImage iImage, const VkForma
     // Create image view and return it
     VkImageView imageView{};
 
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_pDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = m_pGraphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
-    VkResult result = pDeviceFunctions->vkCreateImageView(m_pDevice, &imageViewCreateInfo, nullptr, &imageView);
+
+    VkResult result = pDeviceFunctions->vkCreateImageView(m_pGraphicDevice->getDevice(), &imageViewCreateInfo, nullptr, &imageView);
     if (result != VK_SUCCESS) throw std::runtime_error("Failed to create Image view");
 
     return imageView;

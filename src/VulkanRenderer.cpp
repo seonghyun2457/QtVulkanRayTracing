@@ -1,6 +1,8 @@
 #include "VulkanRenderer.h"
 
 #include "VulkanWindow.h"
+#include "GraphicDevice.h"
+#include "Buffer.h"
 #include "Shader.h"
 
 #include <QDebug>
@@ -39,6 +41,10 @@ bool VulkanRenderer::initializeResources()
         createQueryPools();
         createCommandPools();
         createCommandBuffers();
+        createUniformBuffers();
+        createDescriptorPool();
+        createDescriptorSets();
+        createSynchronization();
 
     } catch (const std::runtime_error& e) {
         printDebugLog(e.what());
@@ -53,15 +59,20 @@ void VulkanRenderer::cleanup()
     QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
     if (pVulkanInstance && pVulkanInstance->isValid() && m_graphicDevice && m_graphicDevice->getDevice()) {
-        QVulkanDeviceFunctions* pFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+        QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+        Q_ASSERT(pDeviceFunctions != nullptr);
 
         // Wait until Idle status
-        pFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+        pDeviceFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
+
+
+        // Destroy uniform buffers
+        destroyUniformBuffers();
 
         // Destroy Command buffers
         {
             if (!m_graphicsCommandBuffers.empty()) {
-                pFunctions->vkFreeCommandBuffers(m_graphicDevice->getDevice(), m_graphicsCommandPool, static_cast<uint32_t>(m_graphicsCommandBuffers.size()), m_graphicsCommandBuffers.data());
+                pDeviceFunctions->vkFreeCommandBuffers(m_graphicDevice->getDevice(), m_graphicsCommandPool, static_cast<uint32_t>(m_graphicsCommandBuffers.size()), m_graphicsCommandBuffers.data());
                 m_graphicsCommandBuffers.clear();
             }
         }
@@ -75,7 +86,7 @@ void VulkanRenderer::cleanup()
             if (m_transferCommandPool != VK_NULL_HANDLE) uniqueCommandPools.insert(m_transferCommandPool);
 
             for (VkCommandPool commandPool : uniqueCommandPools) {
-                pFunctions->vkDestroyCommandPool(m_graphicDevice->getDevice(), commandPool, nullptr);
+                pDeviceFunctions->vkDestroyCommandPool(m_graphicDevice->getDevice(), commandPool, nullptr);
             }
 
             m_graphicsCommandPool = VK_NULL_HANDLE;
@@ -88,7 +99,7 @@ void VulkanRenderer::cleanup()
         {
             for (size_t i = 0; i < m_queryPools.size(); ++i) {
                 if (m_queryPools[i] != VK_NULL_HANDLE) {
-                    pFunctions->vkDestroyQueryPool(m_graphicDevice->getDevice(), m_queryPools[i], nullptr);
+                    pDeviceFunctions->vkDestroyQueryPool(m_graphicDevice->getDevice(), m_queryPools[i], nullptr);
                     m_queryPools[i] = VK_NULL_HANDLE;
                 }
             }
@@ -144,8 +155,8 @@ void VulkanRenderer::recreateImageDependentResources()
 {
     printDebugLog("Recreate image dependent resources");
 
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Wait until idle status
     pDeviceFunctions->vkDeviceWaitIdle(m_graphicDevice->getDevice());
@@ -164,6 +175,11 @@ void VulkanRenderer::recreateImageDependentResources()
 
         }
     }
+}
+
+void VulkanRenderer::draw()
+{
+
 }
 
 void VulkanRenderer::printVulkanLog(const QString& iString) const
@@ -208,7 +224,7 @@ void VulkanRenderer::createSwapChain()
     Q_ASSERT(m_pWindow);
     Q_ASSERT(m_surface);
 
-    m_swapChain = std::make_unique<SwapChain>(m_pWindow, m_graphicDevice->getPhysicalDevice(), m_graphicDevice->getDevice());
+    m_swapChain = std::make_unique<SwapChain>(m_pWindow, m_graphicDevice.get());
 
     m_swapChain->createSwapchain(m_surface, m_surfaceFormat);
 }
@@ -217,10 +233,8 @@ void VulkanRenderer::createDescriptorSetLayout()
 {
     printDebugLog("Create Descriptor set layout");
 
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
-
-    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid() && pDeviceFunctions);
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
 
     // CREATE UNIFORM BUFFER DESCRIPTOR SET LAYOUT
     // uboModelViewProjection binding info
@@ -260,17 +274,16 @@ void VulkanRenderer::createGraphicsPipeline()
 {
     printDebugLog("Create Graphic pipeline");
 
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
-
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Graphics pipeline creation info requres the array of shader stage creation info
     std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
 
     // HANDLE SHADERS
     // Build shader modules to link to Graphics pipeline
-    VkShaderModule vertexShaderModule = Shader::createShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), "../../shaders/vert.spv");
-    VkShaderModule fragmentShaderModule = Shader::createShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), "../../shaders/frag.spv");
+    VkShaderModule vertexShaderModule = Shader::createShaderModule(m_graphicDevice.get(), "../../shaders/vert.spv");
+    VkShaderModule fragmentShaderModule = Shader::createShaderModule(m_graphicDevice.get(), "../../shaders/frag.spv");
 
     // Shader stage creation information
     // Vertex stage creation information
@@ -483,8 +496,8 @@ void VulkanRenderer::createGraphicsPipeline()
         if (result != VK_SUCCESS) throw std::runtime_error("Failed to create pipeline");
     }
 
-    Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), fragmentShaderModule);
-    Shader::destroyShaderModule(pVulkanInstance, m_graphicDevice->getDevice(), vertexShaderModule);
+    Shader::destroyShaderModule(m_graphicDevice.get(), fragmentShaderModule);
+    Shader::destroyShaderModule(m_graphicDevice.get(), vertexShaderModule);
 }
 
 void VulkanRenderer::createQueryPools()
@@ -492,8 +505,9 @@ void VulkanRenderer::createQueryPools()
     printDebugLog("Create Query pools");
 
     QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
+    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
 
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     m_queryPools.resize(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
@@ -546,9 +560,7 @@ void VulkanRenderer::createCommandPools()
 
 VkCommandPool VulkanRenderer::createCommandPool(const uint32_t iQueueFamilyIndex)
 {
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
-
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     VkCommandPoolCreateInfo createInfo{};
@@ -567,9 +579,7 @@ void VulkanRenderer::createCommandBuffers()
 {
     printDebugLog("Create Command buffers");
 
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_graphicDevice->getDevice());
-
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Resize command buffer count to have one for each frame buffer
@@ -587,5 +597,44 @@ void VulkanRenderer::createCommandBuffers()
     // Allocate command buffers and place handles in array of buffers
     VkResult result = pDeviceFunctions->vkAllocateCommandBuffers(m_graphicDevice->getDevice(), &commandBufferAllocateInfo, m_graphicsCommandBuffers.data());
     if (result != VK_SUCCESS) throw std::runtime_error("Failed to allocate Command Buffers");
+}
+
+void VulkanRenderer::createUniformBuffers()
+{
+    printDebugLog("Create Uniform buffers");
+
+    // MVP buffer size
+    const VkDeviceSize mvpSize = sizeof(UboModelViewProjection);
+
+    m_uboMvpBuffers.reserve(m_swapChain->getSwapchainImageCount());
+
+    for (size_t i = 0; i < m_swapChain->getSwapchainImageCount(); ++i) {
+        m_uboMvpBuffers.push_back(std::move(std::make_unique<Buffer>(m_graphicDevice.get())));
+        m_uboMvpBuffers[i]->createBuffer(mvpSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+}
+
+void VulkanRenderer::destroyUniformBuffers()
+{
+    for (size_t i = 0; i < m_uboMvpBuffers.size(); ++i) {
+        m_uboMvpBuffers[i]->destroy();
+    }
+
+    m_uboMvpBuffers.clear();
+}
+
+void VulkanRenderer::createDescriptorPool()
+{
+
+}
+
+void VulkanRenderer::createDescriptorSets()
+{
+
+}
+
+void VulkanRenderer::createSynchronization()
+{
+
 }
 

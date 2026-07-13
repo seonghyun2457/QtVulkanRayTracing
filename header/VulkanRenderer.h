@@ -4,10 +4,11 @@
 #include <QVulkanInstance>
 #include <QVulkanFunctions>
 
-#include "GraphicDevice.h"
 #include "SwapChain.h"
 
 #include <glm/glm.hpp>
+
+#include <vector>
 
 
 typedef struct Vertex {
@@ -18,6 +19,8 @@ typedef struct Vertex {
 
 
 class VulkanWindow;
+class GraphicDevice;
+class Buffer;
 
 class VulkanRenderer
 {
@@ -36,6 +39,8 @@ public:
 
     void recreateImageDependentResources();
 
+    void draw();
+
 private:
     // LOGGING
     void printVulkanLog(const QString& iString) const;
@@ -52,6 +57,11 @@ private:
     void createCommandPools();
     VkCommandPool createCommandPool(const uint32_t iQueueFamilyIndex);
     void createCommandBuffers();
+    void createUniformBuffers();
+    void destroyUniformBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
+    void createSynchronization();
 
 private:
     // Vulkan Window
@@ -108,6 +118,15 @@ private:
     std::vector<VkFence> m_fences;
     size_t m_currentFrame{0};
     size_t m_prevFrame{0};
+
+    // Uniform buffers
+    std::vector<std::unique_ptr<Buffer>> m_uboMvpBuffers;
+
+    struct UboModelViewProjection {
+        glm::mat4 model{0.f};
+        glm::mat4 view{0.f};
+        glm::mat4 projection{0.f};
+    } m_uboModelViewProjection;
 };
 
 #endif // VULKANRENDERER_H

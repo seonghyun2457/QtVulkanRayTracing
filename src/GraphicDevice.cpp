@@ -33,7 +33,7 @@ void GraphicDevice::destroy()
     QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
 
     if (pVulkanInstance && pVulkanInstance->isValid() && m_logicalDevice) {
-        QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_logicalDevice);
+        QVulkanDeviceFunctions* pDeviceFunctions = getVulkanDeviceFunctions();
         Q_ASSERT(pDeviceFunctions != nullptr);
 
         // Wait until idle status
@@ -44,15 +44,36 @@ void GraphicDevice::destroy()
     }
 }
 
+const uint32_t GraphicDevice::findMemoryTypeIndex(const uint32_t allowdedTypes, const VkMemoryPropertyFlags properties) const
+{
+    QVulkanFunctions* pFunctions = getVulkanFunctions();
+    Q_ASSERT(pFunctions);
+
+    // Get properties of physical device memory
+    VkPhysicalDeviceMemoryProperties memProperties{};
+    pFunctions->vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i) {
+        if ((allowdedTypes & (1 << i)) &&                                                // Index of memory type must match corresponding bit in allowedTypes
+            ((memProperties.memoryTypes[i].propertyFlags & properties) == properties))   // Desired property bit flags are part of memory type's property flags
+        {
+            // This memory type is valide, so return its index
+            return i;
+        }
+    }
+
+    throw std::runtime_error("Failed to find suitable memory type");
+}
+
 void GraphicDevice::selectPhysicalDevice()
 {
-    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
-
-    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
-
     printDebugLog("Select physical device");
 
-    QVulkanFunctions* pFunctions = pVulkanInstance->functions();
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
+
+    QVulkanFunctions* pFunctions = getVulkanFunctions();
+    Q_ASSERT(pFunctions);
 
     uint32_t deviceCount = 0;
     pFunctions->vkEnumeratePhysicalDevices(pVulkanInstance->vkInstance(), &deviceCount, nullptr);
@@ -152,7 +173,7 @@ void GraphicDevice::createLogicalDevice()
 
     printDebugLog("Create logical device");
 
-    QVulkanFunctions* pFunctions = pVulkanInstance->functions();
+    QVulkanFunctions* pFunctions = getVulkanFunctions();
     Q_ASSERT(pFunctions != nullptr);
 
     const VkQueueFlags requestedQueueTypes = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_GRAPHICS_BIT;
@@ -268,7 +289,7 @@ void GraphicDevice::createQueues()
     Q_ASSERT(pVulkanInstance && pVulkanInstance->isValid());
     printDebugLog("Create Queues");
 
-    QVulkanDeviceFunctions* pDeviceFunctions = pVulkanInstance->deviceFunctions(m_logicalDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = getVulkanDeviceFunctions();
     Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Validate queue family indices before getting queues

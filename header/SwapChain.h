@@ -6,6 +6,7 @@
 #include <vector>
 
 class VulkanWindow;
+class GraphicDevice;
 
 typedef struct SwapchainDetails {
     VkSurfaceCapabilitiesKHR surfaceCapabilities;     // Surface properties, e.g. image size/extent
@@ -22,7 +23,7 @@ typedef struct SwapchainImage {
 class SwapChain
 {
 public:
-    explicit SwapChain(VulkanWindow* ipWindow, const VkPhysicalDevice& iPhysicalDevice, const VkDevice& iDevice);
+    explicit SwapChain(VulkanWindow* ipWindow, GraphicDevice* ipGraphicDevice);
     virtual ~SwapChain();
 
     SwapChain(const SwapChain& iOther) = delete;
@@ -57,10 +58,7 @@ private:
     VulkanWindow* m_pWindow{nullptr};
 
     // Physical Device
-    const VkPhysicalDevice m_pPhysicalDevice{VK_NULL_HANDLE};
-
-    // Logical Device
-    const VkDevice m_pDevice{VK_NULL_HANDLE};
+    GraphicDevice* m_pGraphicDevice{nullptr};
 
 
     VkSwapchainKHR m_swapchain{VK_NULL_HANDLE};

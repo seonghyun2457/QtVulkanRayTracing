@@ -3,7 +3,11 @@
 
 #include <QVulkanInstance>
 
+#include "GraphicDevice.h"
+
 #include <vector>
+
+class GraphicDevice;
 
 class Shader
 {
@@ -17,8 +21,8 @@ public:
     Shader(Shader&& iOther) = delete;
     Shader& operator=(Shader&& iOther) = delete;
 
-    static const VkShaderModule createShaderModule(QVulkanInstance* ipVulkanInstance, const VkDevice& iDevice, const std::string& iShaderFilePath);
-    static void destroyShaderModule(QVulkanInstance* ipVulkanInstance, const VkDevice& iDevice, VkShaderModule& ioShaderModule);
+    static const VkShaderModule createShaderModule(GraphicDevice* ipGraphicDevice, const std::string& iShaderFilePath);
+    static void destroyShaderModule(GraphicDevice* ipGraphicDevice, VkShaderModule& ioShaderModule);
 
 private:
     static std::vector<char> readShaderFile(const std::string& iShaderFilePath);

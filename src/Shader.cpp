@@ -4,12 +4,12 @@
 #include <QVulkanDeviceFunctions>
 #include <QtAssert>
 
-const VkShaderModule Shader::createShaderModule(QVulkanInstance* ipVulkanInstance, const VkDevice& iDevice, const std::string& iShaderFilePath)
+const VkShaderModule Shader::createShaderModule(GraphicDevice* ipGraphicDevice, const std::string& iShaderFilePath)
 {
-    Q_ASSERT(ipVulkanInstance);
-    Q_ASSERT(iDevice);
+    Q_ASSERT(ipGraphicDevice && ipGraphicDevice->getDevice());
 
-    QVulkanDeviceFunctions* pDeviceFunctions = ipVulkanInstance->deviceFunctions(iDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = ipGraphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
 
     // Read in SPIR-V code of shaders
     std::vector<char> shaderCode = readShaderFile(iShaderFilePath);
@@ -20,21 +20,21 @@ const VkShaderModule Shader::createShaderModule(QVulkanInstance* ipVulkanInstanc
     shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(shaderCode.data());
 
     VkShaderModule shaderModule{VK_NULL_HANDLE};
-    VkResult result = pDeviceFunctions->vkCreateShaderModule(iDevice, &shaderModuleCreateInfo, nullptr, &shaderModule);
+    VkResult result = pDeviceFunctions->vkCreateShaderModule(ipGraphicDevice->getDevice(), &shaderModuleCreateInfo, nullptr, &shaderModule);
     if (result != VK_SUCCESS) throw std::runtime_error("Failed to create Shader module");
 
     return shaderModule;
 }
 
-void Shader::destroyShaderModule(QVulkanInstance* ipVulkanInstance, const VkDevice& iDevice, VkShaderModule& ioShaderModule)
+void Shader::destroyShaderModule(GraphicDevice* ipGraphicDevice, VkShaderModule& ioShaderModule)
 {
-    Q_ASSERT(ipVulkanInstance);
-    Q_ASSERT(iDevice);
+    Q_ASSERT(ipGraphicDevice && ipGraphicDevice->getDevice());
 
-    QVulkanDeviceFunctions* pDeviceFunctions = ipVulkanInstance->deviceFunctions(iDevice);
+    QVulkanDeviceFunctions* pDeviceFunctions = ipGraphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
 
     if (ioShaderModule) {
-        pDeviceFunctions->vkDestroyShaderModule(iDevice, ioShaderModule, nullptr);
+        pDeviceFunctions->vkDestroyShaderModule(ipGraphicDevice->getDevice(), ioShaderModule, nullptr);
         ioShaderModule = VK_NULL_HANDLE;
     }
 }

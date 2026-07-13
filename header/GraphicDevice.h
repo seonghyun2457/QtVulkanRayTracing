@@ -2,10 +2,9 @@
 #define GRAPHICDEVICE_H
 
 #include <QVulkanInstance>
+#include "VulkanWindow.h"
 
 #include <vector>
-
-class VulkanWindow;
 
 typedef struct {
     uint32_t graphics;
@@ -31,6 +30,18 @@ public:
     inline const VkPhysicalDevice& getPhysicalDevice() const { return m_physicalDevice; }
     inline const VkDevice& getDevice() const { return m_logicalDevice; }
     inline const queueFamilyIndices_t& getQueueFamilyIndices() const { return m_queueFaimilyIndices; }
+    const uint32_t findMemoryTypeIndex(const uint32_t allowdedTypes, const VkMemoryPropertyFlags properties) const;
+
+    inline QVulkanFunctions* getVulkanFunctions() const {
+        Q_ASSERT(m_pWindow && m_pWindow->vulkanInstance() && m_pWindow->vulkanInstance()->isValid());
+        return m_pWindow->vulkanInstance()->functions();
+    };
+
+    inline QVulkanDeviceFunctions* getVulkanDeviceFunctions() const {
+        Q_ASSERT(m_pWindow && m_pWindow->vulkanInstance() && m_pWindow->vulkanInstance()->isValid());
+        Q_ASSERT(m_logicalDevice);
+        return m_pWindow->vulkanInstance()->deviceFunctions(m_logicalDevice);
+    }
 
 private:
     void selectPhysicalDevice();
