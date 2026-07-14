@@ -43,6 +43,8 @@ public:
         return m_pWindow->vulkanInstance()->deviceFunctions(m_logicalDevice);
     }
 
+    inline const VkQueue& getGraphicQueue() const { return m_graphicsQueue; }
+
 private:
     void selectPhysicalDevice();
     void createLogicalDevice();

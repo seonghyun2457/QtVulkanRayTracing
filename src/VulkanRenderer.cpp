@@ -222,7 +222,75 @@ void VulkanRenderer::recreateImageDependentResources()
 
 void VulkanRenderer::draw()
 {
+    printDebugLog("draw");
 
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    Q_ASSERT(pVulkanInstance != nullptr);
+
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // GET NEXT IMAGE
+    // Wait for give fence to signal (open) from last draw before continuing
+    pDeviceFunctions->vkWaitForFences(m_graphicDevice->getDevice(), 1, &m_fences[m_currentFrame], VK_TRUE, std::numeric_limits<uint64_t>::max());
+    // Manually reset (close) fences
+    pDeviceFunctions->vkResetFences(m_graphicDevice->getDevice(), 1, &m_fences[m_currentFrame]);
+
+    // Get index of next image to be drawn to, and signal semaphore then ready to be drwan to
+    uint32_t imageIndex = 0;
+    auto* vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)pVulkanInstance->getInstanceProcAddr("vkAcquireNextImageKHR");
+    Q_ASSERT(vkAcquireNextImageKHR != nullptr);
+
+    VkSwapchainKHR swapchain = m_swapChain->getSwapchain();
+
+    vkAcquireNextImageKHR(m_graphicDevice->getDevice(), swapchain, std::numeric_limits<uint64_t>::max(), m_imagesAvailable[m_currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+    // Update Uniform buffers
+    recordCommands(imageIndex);
+    updateUniformBuffers(imageIndex);
+
+    // SUBMIT COMMAND BUFFER TO RENDERER
+    {
+        // Queue submission information
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount = 1;                                                     // Number of semaphores to wait on
+        submitInfo.pWaitSemaphores = &m_imagesAvailable[m_currentFrame];                       // list of semaphores to wait on
+        VkPipelineStageFlags stageFlags[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submitInfo.pWaitDstStageMask = stageFlags;                                             // Stages to check semaphores at
+        submitInfo.commandBufferCount = 1;                                                     // Number of command buffers to submit
+        submitInfo.pCommandBuffers = &m_graphicsCommandBuffers[imageIndex];                    // Command buffer to submit
+        submitInfo.signalSemaphoreCount = 1;                                                   // Number of semaphores to signal
+        submitInfo.pSignalSemaphores = &m_renderFinished[imageIndex];                          // Semaphores to signal when command buffer finishes submitting
+
+        // Submit command buffer to Graphics queue
+        VkResult result = pDeviceFunctions->vkQueueSubmit(m_graphicDevice->getGraphicQueue(), 1, &submitInfo, m_fences[m_currentFrame]);
+        if (result != VK_SUCCESS) throw std::runtime_error("Failed to submit Command buffer to Graphics queue");
+    }
+
+
+    // PRESENT RENDERED IMAGE TO SCREEN
+    {
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &m_renderFinished[imageIndex];
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &swapchain;
+        presentInfo.pImageIndices = &imageIndex;
+
+        // Present rendered image to screen
+        auto* vkQueuePresentKHR = (PFN_vkQueuePresentKHR)pVulkanInstance->getInstanceProcAddr("vkQueuePresentKHR");
+        Q_ASSERT(vkQueuePresentKHR != nullptr);
+        VkResult result = vkQueuePresentKHR(m_graphicDevice->getGraphicQueue(), &presentInfo);
+        if (result != VK_SUCCESS) throw std::runtime_error("Failed to present the rendered image to screen");
+    }
+
+    // Save previous frame for GPU time measurement
+    m_prevFrame = m_currentFrame;
+
+    // GET NEXT FRAME
+    m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void VulkanRenderer::printVulkanLog(const QString& iString) const
@@ -810,4 +878,174 @@ void VulkanRenderer::createRenderFinishedSemaphores()
             throw std::runtime_error("Failed to create semamphores");
         }
     }
+}
+
+void VulkanRenderer::recordCommands(const uint32_t iImageIndex)
+{
+    QVulkanInstance* pVulkanInstance = m_pWindow->vulkanInstance();
+    Q_ASSERT(pVulkanInstance != nullptr);
+
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // Reset Command buffer
+    VkCommandBuffer commandBuffer = m_graphicsCommandBuffers[iImageIndex];
+    pDeviceFunctions->vkResetCommandBuffer(commandBuffer, 0);
+
+    // Information about how to begin each command buffer
+    VkCommandBufferBeginInfo commandBufferBeginInfo{};
+    commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+    // Start recording commands
+    VkResult result = pDeviceFunctions->vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo);
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to start recording Command buffer");
+
+    // Reset query pool
+    pDeviceFunctions->vkCmdResetQueryPool(commandBuffer, m_queryPools[m_currentFrame], 0, FPS_QUERY_COUNT);
+
+    // Frame start timestamp
+    pDeviceFunctions->vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_queryPools[m_currentFrame], 0);
+
+    // RECORD COMMANDS
+    {
+        std::vector<swapchainImage_t>& swapchainImages = m_swapChain->getSwapchainImages();
+        VkExtent2D extent = m_swapChain->getExtent();
+
+        // Image layout transformation (UNDEFINED -> COLOR_ATTACHMENT)
+        VkImageMemoryBarrier imageMemoryBarrierToRender{};
+        imageMemoryBarrierToRender.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageMemoryBarrierToRender.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageMemoryBarrierToRender.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        imageMemoryBarrierToRender.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierToRender.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierToRender.image               = swapchainImages[iImageIndex].image;
+        imageMemoryBarrierToRender.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        imageMemoryBarrierToRender.srcAccessMask       = 0;
+        imageMemoryBarrierToRender.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        pDeviceFunctions->vkCmdPipelineBarrier(commandBuffer,
+                                                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                                 0, 0, nullptr, 0, nullptr,
+                                                 1, &imageMemoryBarrierToRender);
+
+        // Rendering attachment information for Dynamic rendering
+        VkRenderingAttachmentInfo renderingAttachmentInfo{};
+        renderingAttachmentInfo.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        renderingAttachmentInfo.imageView   = swapchainImages[iImageIndex].imageView;
+        renderingAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        renderingAttachmentInfo.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        renderingAttachmentInfo.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+        renderingAttachmentInfo.clearValue  = {{{0.f, 0.f, 0.f, 1.f}}};
+
+        VkRenderingInfo renderingInfo{};
+        renderingInfo.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        renderingInfo.renderArea.offset    = {0, 0};
+        renderingInfo.renderArea.extent    = extent;
+        renderingInfo.layerCount           = 1;
+        renderingInfo.colorAttachmentCount = 1;
+        renderingInfo.pColorAttachments    = &renderingAttachmentInfo;
+
+        auto* vkCmdBeginRendering = (PFN_vkCmdBeginRendering)(pVulkanInstance->getInstanceProcAddr("vkCmdBeginRendering"));
+        Q_ASSERT(vkCmdBeginRendering != nullptr);
+        vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+        // RECORD RENDERING COMMANDS
+        {
+            // Bind Graphic pipeline
+            pDeviceFunctions->vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicPipeline);
+            // Set Primitive Topology
+            auto* vkCmdSetPrimitiveTopology = (PFN_vkCmdSetPrimitiveTopology)(pVulkanInstance->getInstanceProcAddr("vkCmdSetPrimitiveTopology"));
+            Q_ASSERT(vkCmdSetPrimitiveTopology != nullptr);
+            vkCmdSetPrimitiveTopology(commandBuffer, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
+            // Viewport
+            VkViewport viewport{};
+            viewport.x        = 0.0f;
+            viewport.y        = 0.0f;
+            viewport.width    = static_cast<float>(extent.width);
+            viewport.height   = static_cast<float>(extent.height);
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+
+            pDeviceFunctions->vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+            // Scissor
+            VkRect2D scissor{};
+            scissor.offset = {0, 0};
+            scissor.extent = extent;
+
+            pDeviceFunctions->vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+            // record commands for drawable objects
+            {
+                /*
+                // Bind the shared unit-quad (binidng 0) and the per-instnace data (binding 1)
+                std::array<VkBuffer, 2> vertexBuffers{m_rectangleBuffers.m_vertexBuffer, m_instanceBuffers[iImageIndex]};
+                std::array<VkDeviceSize, 2> offsets{0, 0};
+                pDeviceFunctions->vkCmdBindVertexBuffers(commandBuffer, 0, vertexBuffers.size(), vertexBuffers.data(), offsets.data());
+
+                // Bind mesh index buffer with 0 offset and using the uint32 type
+                pDeviceFunctions->vkCmdBindIndexBuffer(commandBuffer, m_rectangleBuffers.m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+                // Bind Descriptor sets (for Uniform Buffer ModelViewProjection)
+                pDeviceFunctions->vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicPipelineLayout,
+                                                            0, 1,
+                                                            &m_descriptorSets[iImageIndex],
+                                                            0, nullptr);
+
+                // Border color/width are shared by every node -> push once to the fragment shader
+                pushConstantInfo_t pushConstInfo{};
+                pushConstInfo.borderColor = glm::vec4(0.3f, 0.3f, 0.3f, 0.4f);   // Border Color
+                pushConstInfo.borderWidth = 0.05f;                               // Border Width
+                pDeviceFunctions->vkCmdPushConstants(commandBuffer, m_graphicPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstantInfo_t), &pushConstInfo);
+
+                // One instanced draw: 6 indices (a quad) * iDrawableNodeCount instances
+                pDeviceFunctions->vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(m_rectangleBuffers.m_indices.size()), static_cast<uint32_t>(iDrawableNodeCount), 0, 0, 0);
+                */
+            }
+        }
+
+        auto* vkCmdEndRendering = (PFN_vkCmdEndRendering)(pVulkanInstance->getInstanceProcAddr("vkCmdEndRendering"));
+        Q_ASSERT(vkCmdBeginRendering != nullptr);
+        vkCmdEndRendering(commandBuffer);
+
+
+        // Image layout transformation (COLOR_ATTACHMENT -> PRESENT)
+        VkImageMemoryBarrier imageMemoryBarrierToPresent{};
+        imageMemoryBarrierToPresent.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imageMemoryBarrierToPresent.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        imageMemoryBarrierToPresent.newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        imageMemoryBarrierToPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierToPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imageMemoryBarrierToPresent.image               = swapchainImages[iImageIndex].image;
+        imageMemoryBarrierToPresent.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        imageMemoryBarrierToPresent.srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        imageMemoryBarrierToPresent.dstAccessMask       = 0;
+
+        pDeviceFunctions->vkCmdPipelineBarrier(commandBuffer,
+                                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                                 0, 0, nullptr, 0, nullptr,
+                                                 1, &imageMemoryBarrierToPresent);
+    }
+
+    // Frame end timestamp
+    pDeviceFunctions->vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_queryPools[m_currentFrame], 1);
+
+    // Stop recording commands
+    result = pDeviceFunctions->vkEndCommandBuffer(commandBuffer);
+    if (result != VK_SUCCESS) throw std::runtime_error("Failed to stop recording Command buffer");
+}
+
+void VulkanRenderer::updateUniformBuffers(const uint32_t iImageIndex)
+{
+    QVulkanDeviceFunctions* pDeviceFunctions = m_graphicDevice->getVulkanDeviceFunctions();
+    Q_ASSERT(pDeviceFunctions != nullptr);
+
+    // Copy ModelViewProjection data to uniform buffer
+    void* pData = nullptr;
+    pDeviceFunctions->vkMapMemory(m_graphicDevice->getDevice(), m_uboMvpBuffers[iImageIndex]->getBufferMemory(), 0, sizeof(m_uboModelViewProjection), 0, &pData);
+    memcpy(pData, &m_uboModelViewProjection, sizeof(m_uboModelViewProjection));
+    pDeviceFunctions->vkUnmapMemory(m_graphicDevice->getDevice(), m_uboMvpBuffers[iImageIndex]->getBufferMemory());
 }

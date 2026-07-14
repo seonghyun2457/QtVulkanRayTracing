@@ -15,6 +15,7 @@ VulkanWindow::VulkanWindow()
 VulkanWindow::~VulkanWindow()
 {
     qDebug() << "Destroying VulkanWindow";
+    m_initialized = false;
     m_vulkanRenderer = nullptr;
     qDebug() << "Destroyed VulkanWindow";
 }
@@ -31,17 +32,31 @@ void VulkanWindow::initializeRenderer()
 void VulkanWindow::exposeEvent(QExposeEvent* event)
 {
     emit debugLogSent("exposed");
-    qDebug() << "exposed";
 
     if (!m_initialized && isExposed()) {
         initializeRenderer();
     }
+
+    if (m_initialized && isExposed()) {
+        requestUpdate();
+    }
+
     QWindow::exposeEvent(event);
 }
 
 bool VulkanWindow::event(QEvent* event)
 {
-    if (event->type() == QEvent::PlatformSurface) {
+    if (event->type() == QEvent::UpdateRequest) {
+        if (m_vulkanRenderer && m_initialized) {
+            m_vulkanRenderer->draw();
+
+            if (isExposed()) {
+                requestUpdate();
+            }
+
+            return true;
+        }
+    } else if (event->type() == QEvent::PlatformSurface) {
         auto* surfaceEvent = static_cast<QPlatformSurfaceEvent*>(event);
 
         if (surfaceEvent->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
@@ -52,6 +67,8 @@ bool VulkanWindow::event(QEvent* event)
                 m_vulkanRenderer->cleanup();
             }
         }
+    } else {
+
     }
 
     return QWindow::event(event);
@@ -60,7 +77,6 @@ bool VulkanWindow::event(QEvent* event)
 void VulkanWindow::resizeEvent(QResizeEvent* event)
 {
     emit debugLogSent("resized");
-    qDebug() << "resized";
 
     if (m_initialized) {
         m_vulkanRenderer->recreateImageDependentResources();

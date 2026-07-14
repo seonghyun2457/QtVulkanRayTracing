@@ -65,6 +65,9 @@ private:
     void createSynchronization();
     void createRenderFinishedSemaphores();
 
+    void recordCommands(const uint32_t iImageIndex);
+    void updateUniformBuffers(const uint32_t iImageIndex);
+
 private:
     // Vulkan Window
     VulkanWindow* m_pWindow{nullptr};

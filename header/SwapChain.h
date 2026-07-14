@@ -36,7 +36,7 @@ public:
     void recreateSwapchain(const VkSurfaceKHR& iSurface, VkSurfaceFormatKHR& oSurfaceFormat);
     void destroy();
 
-    std::vector<swapchainImage_t>& getSwapchainImages();
+    std::vector<swapchainImage_t>& getSwapchainImages() { return m_swapchainImages; }
     inline const VkSwapchainKHR& getSwapchain() const { return m_swapchain; }
     inline const size_t getSwapchainImageCount() const { return m_swapchainImages.size(); }
     inline const VkExtent2D getExtent() const { return m_extent; }
